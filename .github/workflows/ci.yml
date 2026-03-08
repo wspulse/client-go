@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout server (dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: wspulse/server
+          path: server
+
+      - name: Checkout core (transitive dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: wspulse/core
+          path: core
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Setup workspace
+        run: |
+          go work init .
+          go work use ./server ./core
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout server (dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: wspulse/server
+          path: server
+
+      - name: Checkout core (transitive dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: wspulse/core
+          path: core
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Setup workspace
+        run: |
+          go work init .
+          go work use ./server ./core
+
+      - name: Run tests
+        run: go test -race -count=3 ./...
