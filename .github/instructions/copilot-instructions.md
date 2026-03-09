@@ -38,7 +38,10 @@ goimports -w .
   - Follow the commit message rules in [commit-message-instructions.md](commit-message-instructions.md).
   - All commit messages in English.
   - Each commit must represent exactly one logical change.
-  - Run formatter and tests locally before committing.
+  - Before every commit, run in order:
+    1. `goimports -w .` — fix imports and formatting
+    2. `golangci-lint run ./...` — must pass with zero warnings
+    3. `go test -race ./...` — must pass
 - **Tests**: co-located with source (`_test.go`). Cover happy path and at least one error path. Required for new public functions. Tests may import `github.com/wspulse/server` to create echo servers — this is a test-only dependency.
 
 ## Critical Rules
