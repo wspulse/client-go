@@ -15,6 +15,7 @@ wspulse/client-go is a **WebSocket client library for Go** with automatic reconn
 make fmt        # format (gofmt + goimports)
 make lint       # vet + golangci-lint
 make test       # race detector, count=3
+make check      # fmt + lint + test (pre-commit gate)
 make bench      # benchmarks with memory stats
 make test-cover # coverage report → coverage.html
 make tidy       # tidy module dependencies
@@ -33,10 +34,7 @@ make tidy       # tidy module dependencies
   - Follow the commit message rules in [commit-message-instructions.md](commit-message-instructions.md).
   - All commit messages in English.
   - Each commit must represent exactly one logical change.
-  - Before every commit, run in order:
-    1. `make fmt` — fix imports and formatting
-    2. `make lint` — must pass with zero warnings
-    3. `make test` — must pass
+  - Before every commit, run `make check` (runs fmt → lint → test in order).
 - **Tests**: co-located with source (`_test.go`). Cover happy path and at least one error path. Required for new public functions. Tests may import `github.com/wspulse/server` to create echo servers — this is a test-only dependency.
   - **Test-first for bug fixes**: when a bug is discovered, write a failing test that reproduces it before touching production code. The PR must include this test.
   - **Benchmarks**: changes to reconnect backoff, message throughput, or codec must include a benchmark. Verify with `make bench`.

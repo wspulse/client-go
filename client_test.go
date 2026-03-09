@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wspulse/client-go"
+	"go.uber.org/goleak"
 	wspulse "github.com/wspulse/server"
 )
 
@@ -533,4 +534,8 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for valid frame")
 	}
+}
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
 }

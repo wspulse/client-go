@@ -1,4 +1,4 @@
-.PHONY: help test test-cover bench lint fmt tidy clean
+.PHONY: help test test-cover bench lint fmt check tidy clean
 
 # Default target
 help: ## Show available commands
@@ -23,6 +23,8 @@ lint: ## Run go vet and golangci-lint
 fmt: ## Format source files
 	gofmt -w .
 	goimports -w . 2>/dev/null || true
+
+check: fmt lint test ## Run fmt, lint, and test (pre-commit gate)
 
 tidy: ## Tidy module dependencies
 	go mod tidy
