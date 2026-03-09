@@ -2,7 +2,7 @@
 
 This file is the entry point for all AI coding agents (GitHub Copilot, Codex,
 Cursor, Claude, etc.). Full working rules are in
-`.github/instructions/copilot-instructions.md` — read it completely before
+`.github/copilot-instructions.md` — read it completely before
 making any changes.
 
 ---

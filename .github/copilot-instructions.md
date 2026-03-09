@@ -31,7 +31,7 @@ make tidy       # tidy module dependencies
   - When in doubt, spell out the full word.
 - **Markdown**: no emojis in documentation files.
 - **Git**:
-  - Follow the commit message rules in [commit-message-instructions.md](commit-message-instructions.md).
+  - Follow the commit message rules in [commit-message-instructions.md](instructions/commit-message-instructions.md).
   - All commit messages in English.
   - Each commit must represent exactly one logical change.
   - Before every commit, run `make check` (runs fmt → lint → test in order).
