@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wspulse/client-go"
-	"go.uber.org/goleak"
 	wspulse "github.com/wspulse/server"
+	"go.uber.org/goleak"
+
+	"github.com/wspulse/client-go"
 )
 
 func startEchoServer(t *testing.T) string {
