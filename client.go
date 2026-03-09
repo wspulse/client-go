@@ -31,17 +31,18 @@ type Client interface {
 //     telling the OLD writePump to yield so the NEW one can take over.
 //     Swapped (replaced with a fresh channel) on each reconnect.
 type internalClient struct {
-	url            string
-	config         *clientConfig
-	logger         *zap.Logger
-	connection     *websocket.Conn
-	send           chan []byte
-	done           chan struct{} // closed only by Close()
-	quit           chan struct{} // closed by Close() to stop reconnect loop
-	connectionQuit chan struct{} // closed to stop the current writePump; swapped on each reconnect
-	pumpDone       chan struct{} // closed by writePump on exit; used by reconnectLoop to wait for the old pump
-	mu             sync.Mutex    // guards connection, connectionQuit, and pumpDone across goroutines
-	once           sync.Once     // ensures Close() logic runs only once
+	url                string
+	config             *clientConfig
+	logger             *zap.Logger
+	connection         *websocket.Conn
+	send               chan []byte
+	done               chan struct{}  // closed only by Close()
+	quit               chan struct{}  // closed by Close() to stop reconnect loop
+	connectionQuit     chan struct{}  // closed to stop the current writePump; swapped on each reconnect
+	pumpDone           chan struct{}  // closed by writePump on exit; used by reconnectLoop to wait for the old pump
+	mu                 sync.Mutex     // guards connection, connectionQuit, and pumpDone across goroutines
+	once               sync.Once      // ensures Close() logic runs only once
+	goroutineWaitGroup sync.WaitGroup // tracks all internal goroutines so Close() can wait for their exit
 }
 
 // Dial connects to urlStr and returns a Client.
@@ -70,12 +71,14 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		zap.String("url", urlStr),
 	)
 	dropped := make(chan struct{})
-	go c.writePump(connectionQuit, pumpDone)
-	go c.readPump(dropped)
+	c.goroutineWaitGroup.Add(3)
+	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(connectionQuit, pumpDone) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
 	if config.autoReconnect {
-		go c.reconnectLoop(dropped)
+		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
 		go func() {
+			defer c.goroutineWaitGroup.Done()
 			<-dropped
 			c.logger.Debug("wspulse/client: connection dropped permanently (no reconnect)")
 			c.once.Do(func() {
@@ -116,7 +119,13 @@ func (c *internalClient) Send(f wspulse.Frame) error {
 }
 
 // Close terminates the connection and stops any reconnect loop.
+// It blocks until all internal goroutines have exited, so after Close
+// returns the client holds no background resources.
 // Safe to call multiple times.
+//
+// Do not call Close from within an OnMessage callback; the callback runs
+// inside readPump, and waiting for readPump to exit would deadlock.
+// Use go c.Close() instead if closing from a callback is required.
 func (c *internalClient) Close() error {
 	c.once.Do(func() {
 		c.logger.Info("wspulse/client: closing",
@@ -125,6 +134,7 @@ func (c *internalClient) Close() error {
 		close(c.done)
 		close(c.quit)
 	})
+	c.goroutineWaitGroup.Wait()
 	return nil
 }
 
@@ -336,8 +346,9 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		close(oldQuit)
 		<-oldPumpDone
 
-		go c.writePump(newQuit, newPumpDone)
-		go c.readPump(dropped)
+		c.goroutineWaitGroup.Add(2)
+		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newQuit, newPumpDone) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
 		c.logger.Info("wspulse/client: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),

@@ -2,10 +2,13 @@ package client_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -534,6 +537,82 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for valid frame")
+	}
+}
+
+// startMultiClientEchoServer creates a server that assigns each connection a
+// unique client ID so multiple concurrent clients coexist without kicking.
+func startMultiClientEchoServer(t *testing.T) string {
+	t.Helper()
+	var clientIDCounter atomic.Int64
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			id := clientIDCounter.Add(1)
+			return "room", fmt.Sprintf("c-%d", id), nil
+		},
+		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
+			_ = connection.Send(f)
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(ts.URL, "http")
+}
+
+func TestClient_Close_WaitsForGoroutines(t *testing.T) {
+	url := startMultiClientEchoServer(t)
+
+	const count = 50
+	clients := make([]client.Client, count)
+	for i := range clients {
+		c, err := client.Dial(url)
+		if err != nil {
+			t.Fatalf("Dial #%d failed: %v", i, err)
+		}
+		clients[i] = c
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	before := runtime.NumGoroutine()
+	for _, c := range clients {
+		_ = c.Close()
+	}
+	after := runtime.NumGoroutine()
+
+	// Each client spawns 3 internal goroutines. If Close() properly
+	// blocks until they exit, NumGoroutine drops by roughly count*3.
+	if reclaimed := before - after; reclaimed < count {
+		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
+			reclaimed, count, before, after)
+	}
+}
+
+func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
+	url := startMultiClientEchoServer(t)
+
+	const count = 50
+	clients := make([]client.Client, count)
+	for i := range clients {
+		c, err := client.Dial(url,
+			client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
+		)
+		if err != nil {
+			t.Fatalf("Dial #%d failed: %v", i, err)
+		}
+		clients[i] = c
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	before := runtime.NumGoroutine()
+	for _, c := range clients {
+		_ = c.Close()
+	}
+	after := runtime.NumGoroutine()
+
+	if reclaimed := before - after; reclaimed < count {
+		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
+			reclaimed, count, before, after)
 	}
 }
 
