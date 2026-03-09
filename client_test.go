@@ -304,6 +304,9 @@ func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
 		{"ping > pong", 30 * time.Second, 10 * time.Second, 5 * time.Second},
 		{"ping zero", 0, 10 * time.Second, 5 * time.Second},
 		{"writeWait zero", 5 * time.Second, 10 * time.Second, 0},
+		{"ping exceeds max", 2 * time.Minute, 3 * time.Minute, 5 * time.Second},
+		{"pong exceeds max", 1 * time.Second, 3 * time.Minute, 5 * time.Second},
+		{"writeWait exceeds max", 1 * time.Second, 5 * time.Second, 31 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -444,12 +447,24 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 }
 
 func TestClient_WithMaxMessageSize_InvalidParam_Panics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for n=0")
-		}
-	}()
-	client.WithMaxMessageSize(0)
+	cases := []struct {
+		name string
+		n    int64
+	}{
+		{"zero", 0},
+		{"negative", -1},
+		{"exceeds max", 65 << 20},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected panic")
+				}
+			}()
+			client.WithMaxMessageSize(tc.n)
+		})
+	}
 }
 
 func TestClient_WithLogger_Nil_Panics(t *testing.T) {
@@ -465,6 +480,52 @@ func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
 	opt := client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second)
 	if opt == nil {
 		t.Fatal("expected non-nil option")
+	}
+}
+
+func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
+	cases := []struct {
+		name       string
+		maxRetries int
+		base, max  time.Duration
+	}{
+		{"baseDelay zero", 3, 0, 30 * time.Second},
+		{"baseDelay negative", 3, -1 * time.Second, 30 * time.Second},
+		{"baseDelay exceeds max", 3, 2 * time.Minute, 3 * time.Minute},
+		{"maxDelay < baseDelay", 3, 5 * time.Second, 1 * time.Second},
+		{"maxDelay exceeds max", 3, 1 * time.Second, 6 * time.Minute},
+		{"maxRetries exceeds max", 33, 1 * time.Second, 30 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Error("expected panic")
+				}
+			}()
+			_ = client.WithAutoReconnect(tc.maxRetries, tc.base, tc.max)
+		})
+	}
+}
+
+func TestClient_WithAutoReconnect_ValidParams_NoPanic(t *testing.T) {
+	cases := []struct {
+		name       string
+		maxRetries int
+		base, max  time.Duration
+	}{
+		{"unlimited retries", -1, 1 * time.Second, 30 * time.Second},
+		{"zero retries (unlimited)", 0, 500 * time.Millisecond, 1 * time.Minute},
+		{"max boundary values", 32, 1 * time.Minute, 5 * time.Minute},
+		{"typical values", 10, 1 * time.Second, 30 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := client.WithAutoReconnect(tc.maxRetries, tc.base, tc.max)
+			if opt == nil {
+				t.Fatal("expected non-nil option")
+			}
+		})
 	}
 }
 

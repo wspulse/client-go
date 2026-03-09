@@ -8,6 +8,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// Configuration upper bounds — option functions panic if these ceilings are exceeded.
+const (
+	maxPingPeriod   = 1 * time.Minute  // WithHeartbeat: pingPeriod upper bound
+	maxPongWait     = 2 * time.Minute  // WithHeartbeat: pongWait upper bound
+	maxWriteWait    = 30 * time.Second // WithHeartbeat: writeWait upper bound
+	maxMsgSizeBytes = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
+	maxBaseDelay    = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
+	maxMaxDelay     = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
+	maxMaxRetries   = 32               // WithAutoReconnect: maxRetries upper bound (≤ 0 = unlimited)
+)
+
 // ClientOption configures a Client.
 type ClientOption func(*clientConfig)
 
@@ -81,9 +92,24 @@ func WithCodec(codec wspulse.Codec) ClientOption {
 }
 
 // WithAutoReconnect enables automatic reconnection with exponential backoff.
-// maxRetries ≤ 0 retries indefinitely. baseDelay is the initial backoff; it
-// doubles each attempt up to maxDelay.
+// maxRetries ≤ 0 retries indefinitely; positive values must be in [1, 32].
+// baseDelay must be in (0, 1m] and maxDelay must be in [baseDelay, 5m].
 func WithAutoReconnect(maxRetries int, baseDelay, maxDelay time.Duration) ClientOption {
+	if baseDelay <= 0 {
+		panic("wspulse/client: WithAutoReconnect: baseDelay must be positive")
+	}
+	if baseDelay > maxBaseDelay {
+		panic("wspulse/client: WithAutoReconnect: baseDelay exceeds maximum (1m)")
+	}
+	if maxDelay < baseDelay {
+		panic("wspulse/client: WithAutoReconnect: maxDelay must be >= baseDelay")
+	}
+	if maxDelay > maxMaxDelay {
+		panic("wspulse/client: WithAutoReconnect: maxDelay exceeds maximum (5m)")
+	}
+	if maxRetries > maxMaxRetries {
+		panic("wspulse/client: WithAutoReconnect: maxRetries exceeds maximum (32)")
+	}
 	return func(c *clientConfig) {
 		c.autoReconnect = true
 		c.maxRetries = maxRetries
@@ -106,10 +132,19 @@ func WithLogger(logger *zap.Logger) ClientOption {
 }
 
 // WithHeartbeat configures client-side Ping/Pong heartbeat intervals.
-// pingPeriod must be positive and strictly less than pongWait.
+// pingPeriod must be in (0, 1m], pongWait in (pingPeriod, 2m], writeWait in (0, 30s].
 func WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration) ClientOption {
 	if pingPeriod <= 0 || pongWait <= 0 || writeWait <= 0 || pingPeriod >= pongWait {
 		panic("wspulse/client: WithHeartbeat: pingPeriod must be positive and strictly less than pongWait, writeWait must be positive")
+	}
+	if pingPeriod > maxPingPeriod {
+		panic("wspulse/client: WithHeartbeat: pingPeriod exceeds maximum (1m)")
+	}
+	if pongWait > maxPongWait {
+		panic("wspulse/client: WithHeartbeat: pongWait exceeds maximum (2m)")
+	}
+	if writeWait > maxWriteWait {
+		panic("wspulse/client: WithHeartbeat: writeWait exceeds maximum (30s)")
 	}
 	return func(c *clientConfig) {
 		c.pingPeriod = pingPeriod
@@ -119,10 +154,13 @@ func WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration) ClientOption {
 }
 
 // WithMaxMessageSize sets the maximum size in bytes for inbound messages.
-// n must be at least 1.
+// n must be in [1, 67108864] (64 MiB).
 func WithMaxMessageSize(n int64) ClientOption {
 	if n < 1 {
 		panic("wspulse/client: WithMaxMessageSize: n must be at least 1")
+	}
+	if n > maxMsgSizeBytes {
+		panic("wspulse/client: WithMaxMessageSize: n exceeds maximum (64 MiB)")
 	}
 	return func(c *clientConfig) { c.maxMessageSize = n }
 }
