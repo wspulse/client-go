@@ -55,3 +55,17 @@ make tidy       # tidy module dependencies
 6. **No breaking changes without version bump** — never rename, remove, or change the signature of an exported symbol without bumping the major version. When unsure, add alongside the old symbol and deprecate.
 7. **Accuracy** — if you have questions or need clarification, ask the user. Do not make assumptions without confirming.
 8. **Language consistency** — when the user writes in Traditional Chinese, respond in Traditional Chinese; otherwise respond in English.
+
+## Session Protocol
+
+> Files under `doc/local/` are git-ignored and must **never** be committed.
+> This applies to all plan files and the AI learning log.
+
+- **Plan mode**: when implementing a new feature or multi-file fix, save a plan
+  to `doc/local/plan/<feature-name>.md` before starting. Keep it updated with
+  completed steps and any plan changes throughout the session.
+- **AI learning log**: at the end of a session where mistakes were made or
+  reusable techniques were discovered, append a short entry to the session log
+  under `doc/local/` (exact subfolder TBD). Entry format:
+  `Date` / `Issue or Learning` / `Root Cause` / `Prevention Rule`.
+  Append only — never overwrite existing entries.
