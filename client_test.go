@@ -319,7 +319,7 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
 		},
-		wspulse.WithResumeWindow(5*time.Second),
+		wspulse.WithResumeWindow(5),
 	)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
