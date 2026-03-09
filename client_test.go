@@ -601,6 +601,61 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	}
 }
 
+func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
+	url := startEchoServer(t)
+	var callbackDone atomic.Bool
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			time.Sleep(200 * time.Millisecond)
+			callbackDone.Store(true)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	_ = c.Close()
+	if !callbackDone.Load() {
+		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
+	}
+}
+
+func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
+	url := startEchoServer(t)
+	var callbackDone atomic.Bool
+	c, err := client.Dial(url,
+		client.WithOnTransportDrop(func(err error) {
+			time.Sleep(200 * time.Millisecond)
+			callbackDone.Store(true)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	_ = c.Close()
+	if !callbackDone.Load() {
+		t.Fatal("Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
+	}
+}
+
+func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
+	url := startEchoServer(t)
+	var callbackDone atomic.Bool
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
+		client.WithOnDisconnect(func(err error) {
+			time.Sleep(200 * time.Millisecond)
+			callbackDone.Store(true)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	_ = c.Close()
+	if !callbackDone.Load() {
+		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
+	}
+}
+
 // startMultiClientEchoServer creates a server that assigns each connection a
 // unique client ID so multiple concurrent clients coexist without kicking.
 func startMultiClientEchoServer(t *testing.T) string {

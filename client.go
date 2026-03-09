@@ -86,7 +86,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 				close(c.quit)
 			})
 			if fn := c.config.onDisconnect; fn != nil {
-				go fn(nil)
+				fn(nil)
 			}
 		}()
 	}
@@ -123,8 +123,9 @@ func (c *internalClient) Send(f wspulse.Frame) error {
 // returns the client holds no background resources.
 // Safe to call multiple times.
 //
-// Do not call Close from within an OnMessage callback; the callback runs
-// inside readPump, and waiting for readPump to exit would deadlock.
+// Do not call Close synchronously from within any callback (OnMessage,
+// OnDisconnect, OnTransportDrop, OnReconnect); the callback runs inside
+// a tracked goroutine, and waiting for it to exit would deadlock.
 // Use go c.Close() instead if closing from a callback is required.
 func (c *internalClient) Close() error {
 	c.once.Do(func() {
@@ -176,7 +177,7 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 		)
 
 		if fn := c.config.onTransportDrop; fn != nil {
-			go fn(readErr)
+			fn(readErr)
 		}
 	}()
 
@@ -268,7 +269,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	defer func() {
 		if fn := c.config.onDisconnect; fn != nil {
-			go fn(nil)
+			fn(nil)
 		}
 	}()
 
@@ -305,7 +306,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		}
 
 		if fn := c.config.onReconnect; fn != nil {
-			go fn(attempt)
+			fn(attempt)
 		}
 
 		c.logger.Debug("wspulse/client: reconnect attempt",
