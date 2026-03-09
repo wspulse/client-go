@@ -34,9 +34,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup workspace
-        run: |
-          go work init .
-          go work use ./server ./core
+        run: go work init . ./server ./core
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -68,9 +66,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Setup workspace
-        run: |
-          go work init .
-          go work use ./server ./core
+        run: go work init . ./server ./core
 
       - name: Run tests
-        run: go test -race -count=3 ./...
+        run: go test -v -race -count=3 ./...
