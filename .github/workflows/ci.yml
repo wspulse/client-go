@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, 'feat/**', 'refactor/**', 'bugfix/**']
+    branches: [main, develop, 'feature/**', 'refactor/**', 'bugfix/**']
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
     paths-ignore:

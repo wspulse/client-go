@@ -36,7 +36,7 @@ make tidy       # tidy module dependencies
   - Each commit must represent exactly one logical change.
   - Before every commit, run `make check` (runs fmt → lint → test in order).
   - **Branch strategy**: never push directly to `develop` or `main`.
-    - `feat/<name>` — new feature
+    - `feature/<name>` — new feature
     - `refactor/<name>` — restructure without behaviour change
     - `bugfix/<name>` — bug fix
     - CI runs on all three prefixes. Open a PR into `develop`; `develop` requires status checks to pass.
