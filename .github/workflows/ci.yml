@@ -9,12 +9,6 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.github/instructions/**'
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - '.github/instructions/**'
 
 jobs:
   lint:
