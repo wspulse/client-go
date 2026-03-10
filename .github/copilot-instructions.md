@@ -59,9 +59,14 @@ make tidy       # tidy module dependencies
    3. Fix the production code.
    4. Run the test again and confirm it **passes**.
    5. Run `make check` to verify nothing else broke.
-      If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
-8. **Accuracy** — if you have questions or need clarification, ask the user. Do not make assumptions without confirming.
-9. **Language consistency** — when the user writes in Traditional Chinese, respond in Traditional Chinese; otherwise respond in English.
+   6. If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
+8. **STOP — before every commit, verify this checklist:**
+   1. Run `make check` (fmt → lint → test) and confirm it passes.
+   2. Commit message follows [commit-message-instructions.md](instructions/commit-message-instructions.md): correct type, subject ≤ 50 chars, numbered body items stating reason → change.
+   3. This commit contains exactly one logical change — no unrelated modifications.
+   4. If any item fails — fix it before committing.
+9. **Accuracy** — if you have questions or need clarification, ask the user. Do not make assumptions without confirming.
+10. **Language consistency** — when the user writes in Traditional Chinese, respond in Traditional Chinese; otherwise respond in English.
 
 ## Session Protocol
 
