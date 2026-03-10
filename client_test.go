@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.uber.org/goleak"
+	"go.uber.org/zap"
 
 	wspulse "github.com/wspulse/server"
 
@@ -475,11 +476,25 @@ func TestClient_WithLogger_Nil_Panics(t *testing.T) {
 	client.WithLogger(nil)
 }
 
-func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
-	opt := client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second)
-	if opt == nil {
-		t.Fatal("expected non-nil option")
+func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
+	url := startEchoServer(t)
+	logger, _ := zap.NewDevelopment()
+	c, err := client.Dial(url, client.WithLogger(logger))
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
 	}
+	_ = c.Close()
+}
+
+func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
+	url := startEchoServer(t)
+	c, err := client.Dial(url,
+		client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	_ = c.Close()
 }
 
 func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
