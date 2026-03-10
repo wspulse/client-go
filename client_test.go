@@ -731,6 +731,209 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 	}
 }
 
+// failEncodeCodec is a test codec whose Encode always returns an error.
+type failEncodeCodec struct{}
+
+func (failEncodeCodec) Encode(wspulse.Frame) ([]byte, error) {
+	return nil, errors.New("wspulse: encode fail")
+}
+
+func (failEncodeCodec) Decode(data []byte) (wspulse.Frame, error) {
+	return wspulse.Frame{}, nil
+}
+
+func (failEncodeCodec) FrameType() int { return 1 }
+
+func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
+	url := startEchoServer(t)
+	c, err := client.Dial(url, client.WithCodec(failEncodeCodec{}))
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	err = c.Send(wspulse.Frame{Type: "msg"})
+	if err == nil {
+		t.Fatal("expected encode error, got nil")
+	}
+}
+
+func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
+	var clientIDCounter atomic.Int64
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			id := clientIDCounter.Add(1)
+			return "room", fmt.Sprintf("rc-%d", id), nil
+		},
+		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
+			_ = connection.Send(f)
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	reconnected := make(chan int, 5)
+	received := make(chan wspulse.Frame, 5)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(3, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnReconnect(func(attempt int) {
+			select {
+			case reconnected <- attempt:
+			default:
+			}
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case received <- f:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Verify initial connectivity.
+	if err := c.Send(wspulse.Frame{Type: "before", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send before kick: %v", err)
+	}
+	select {
+	case f := <-received:
+		if f.Type != "before" {
+			t.Fatalf("want type %q, got %q", "before", f.Type)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for echo before kick")
+	}
+
+	// Drop the connection.
+	firstID := fmt.Sprintf("rc-%d", clientIDCounter.Load())
+	if err := srv.Kick(firstID); err != nil {
+		t.Fatalf("Kick failed: %v", err)
+	}
+
+	// Wait for onReconnect (fires before dialOnce).
+	select {
+	case <-reconnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onReconnect")
+	}
+
+	// Wait for new pumps to start.
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify post-reconnect message delivery.
+	if err := c.Send(wspulse.Frame{Type: "after", Payload: []byte(`"2"`)}); err != nil {
+		t.Fatalf("Send after reconnect: %v", err)
+	}
+	select {
+	case f := <-received:
+		if f.Type != "after" {
+			t.Fatalf("want type %q, got %q", "after", f.Type)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for echo after reconnect")
+	}
+}
+
+func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+	)
+	ts := httptest.NewServer(srv)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnected := make(chan struct{}, 1)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(2, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnDisconnect(func(err error) {
+			select {
+			case disconnected <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Shut down the server so reconnect dials fail.
+	srv.Close()
+	ts.Close()
+
+	// Done() should close after max retries are exhausted.
+	select {
+	case <-c.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out: Done() did not close after max retries exhausted")
+	}
+
+	// onDisconnect should have fired.
+	select {
+	case <-disconnected:
+	case <-time.After(time.Second):
+		t.Fatal("onDisconnect did not fire after max retries exhausted")
+	}
+}
+
+func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	transportDropped := make(chan struct{}, 1)
+	c, err := client.Dial(url,
+		// Long backoff so Close() hits while the timer is still running.
+		client.WithAutoReconnect(3, 10*time.Second, 30*time.Second),
+		client.WithOnTransportDrop(func(err error) {
+			select {
+			case transportDropped <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+
+	// Kill connection; the reconnect loop enters a 10 s backoff.
+	_ = srv.Kick("c1")
+
+	select {
+	case <-transportDropped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for transport drop")
+	}
+
+	// Let the reconnect loop reach the backoff select.
+	time.Sleep(100 * time.Millisecond)
+
+	// Close() must not block waiting for the long backoff timer.
+	closeDone := make(chan struct{})
+	go func() {
+		_ = c.Close()
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close() hung during backoff — timer not stopped")
+	}
+}
+
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
