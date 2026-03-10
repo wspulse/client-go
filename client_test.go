@@ -12,16 +12,16 @@ import (
 	"testing"
 	"time"
 
-	wspulse "github.com/wspulse/server"
 	"go.uber.org/goleak"
+
+	wspulse "github.com/wspulse/server"
 
 	"github.com/wspulse/client-go"
 )
 
 func startEchoServer(t *testing.T) string {
 	t.Helper()
-	var srv wspulse.Server
-	srv = wspulse.NewServer(
+	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "client-1", nil
 		},
@@ -157,8 +157,7 @@ func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 }
 
 func TestClient_ReadPump_PanicRecovery(t *testing.T) {
-	var srv wspulse.Server
-	srv = wspulse.NewServer(
+	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "echo-1", nil
 		},

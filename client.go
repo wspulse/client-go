@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	wspulse "github.com/wspulse/server"
 	"go.uber.org/zap"
+
+	wspulse "github.com/wspulse/server"
 )
 
 // Client is the public interface for the WebSocket client.

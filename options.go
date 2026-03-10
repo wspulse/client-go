@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	wspulse "github.com/wspulse/server"
 	"go.uber.org/zap"
+
+	wspulse "github.com/wspulse/server"
 )
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
@@ -20,7 +21,7 @@ const (
 )
 
 // ClientOption configures a Client.
-type ClientOption func(*clientConfig)
+type ClientOption func(*clientConfig) //nolint:revive
 
 type clientConfig struct {
 	onMessage       func(wspulse.Frame)
