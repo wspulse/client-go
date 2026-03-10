@@ -51,6 +51,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       TEST_COUNT: ${{ github.ref_type == 'tag' && '5' || github.ref == 'refs/heads/main' && '3' || github.event_name == 'pull_request' && '3' || '1' }}
     steps:
@@ -79,4 +80,4 @@ jobs:
         run: go work init . ./server ./core
 
       - name: Run tests
-        run: go test -v -race -count=${{ env.TEST_COUNT }} ./...
+        run: go test -v -race -count=${{ env.TEST_COUNT }} -timeout 120s ./...
