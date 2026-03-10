@@ -42,7 +42,7 @@ if err != nil {
 }
 defer c.Close()
 
-c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`{"text":"hello"}`)})
+c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`{"text":"hello"}`)})
 <-c.Done()
 ```
 
@@ -53,15 +53,19 @@ c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`{"text":"hello"}`)})
 Every frame sent or received is a JSON object on the wire:
 
 ```json
-{"id":"msg-001","type":"chat.message","payload":{"text":"hello"}}
+{
+  "id": "msg-001",
+  "event": "chat.message",
+  "payload": { "text": "hello" }
+}
 ```
 
-The `"type"` field is the routing key on the server. Set `frame.Type` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
+The `"event"` field is the routing key on the server. Set `frame.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
 
 ```go
-// Send a typed frame — server routes by "type"
+// Send a typed frame — server routes by "event"
 client.Send(server.Frame{
-    Type:    "chat.message",
+    Event:    "chat.message",
     Payload: []byte(`{"text":"hello world"}`),
 })
 
