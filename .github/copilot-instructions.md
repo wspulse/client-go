@@ -58,23 +58,23 @@ make tidy       # tidy module dependencies
 5. **Goroutine lifecycle** — every goroutine launched must have an explicit, documented exit condition. `Close()` must guarantee all internal goroutines have exited before returning. Use `go.uber.org/goleak` in `TestMain` to catch leaks during testing.
 6. **No breaking changes without version bump** — never rename, remove, or change the signature of an exported symbol without bumping the major version. When unsure, add alongside the old symbol and deprecate.
 7. **STOP — test first, fix second** — when a bug is discovered or reported, do NOT touch production code until a failing test exists. Follow this exact sequence without skipping or reordering:
-   1. Write a failing test that reproduces the bug.
-   2. Run the test and confirm it **fails** (proving the test actually catches the bug).
-   3. Fix the production code.
-   4. Run the test again and confirm it **passes**.
-   5. Run `make check` to verify nothing else broke.
-   6. If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
+    1. Write a failing test that reproduces the bug.
+    2. Run the test and confirm it **fails** (proving the test actually catches the bug).
+    3. Fix the production code.
+    4. Run the test again and confirm it **passes**.
+    5. Run `make check` to verify nothing else broke.
+    6. If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
 8. **STOP — before every commit, verify this checklist:**
-   1. Run `make check` (fmt → lint → test) and confirm it passes.
-   2. Commit message follows [commit-message-instructions.md](instructions/commit-message-instructions.md): correct type, subject ≤ 50 chars, numbered body items stating reason → change.
-   3. This commit contains exactly one logical change — no unrelated modifications.
-   4. If any item fails — fix it before committing.
+    1. Run `make check` (fmt → lint → test) and confirm it passes.
+    2. Commit message follows [commit-message-instructions.md](instructions/commit-message-instructions.md): correct type, subject ≤ 50 chars, numbered body items stating reason → change.
+    3. This commit contains exactly one logical change — no unrelated modifications.
+    4. If any item fails — fix it before committing.
 9. **Accuracy** — if you have questions or need clarification, ask the user. Do not make assumptions without confirming.
 10. **Language consistency** — when the user writes in Traditional Chinese, respond in Traditional Chinese; otherwise respond in English.
 11. **Panic policy — fail early, never at steady-state runtime** — Enforce errors at the earliest possible phase:
-   1. Prefer compile-time enforcement via the type system.
-   2. **Setup-time programmer errors** (nil handler, empty event name, duplicate registration, invalid option): `panic`. These indicate a caller logic bug; crashing at startup is correct — the process should never start accepting traffic with a misconfigured router or server.
-   3. **Steady-state runtime** (`Dispatch`, `Send`, `Close`, reconnect loops, and any code that runs after startup completes): return `error`, never `panic`.
+    1. Prefer compile-time enforcement via the type system.
+    2. **Setup-time programmer errors** (nil handler, empty event name, duplicate registration, invalid option): `panic`. These indicate a caller logic bug; crashing at startup is correct — the process should never start accepting traffic with a misconfigured router or server.
+    3. **Steady-state runtime** (`Dispatch`, `Send`, `Close`, reconnect loops, and any code that runs after startup completes): return `error`, never `panic`.
 
 ## Session Protocol
 
