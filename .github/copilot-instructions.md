@@ -37,7 +37,8 @@ make tidy       # tidy module dependencies
     - `feature/<name>` — new feature
     - `refactor/<name>` — restructure without behaviour change
     - `bugfix/<name>` — bug fix
-    - CI runs on all three prefixes. Open a PR into `develop`; `develop` requires status checks to pass.
+    - `fix/<name>` — quick fix (e.g. config, docs, CI)
+    - CI runs on all four prefixes. Open a PR into `develop`; `develop` requires status checks to pass.
 - **Tests**: co-located with source (`_test.go`). Cover happy path and at least one error path. Required for new public functions. Tests may import `github.com/wspulse/server` to create echo servers — this is a test-only dependency.
   - **Test-first for bug fixes**: **mandatory** — see Critical Rule 7 for the required step-by-step procedure. Do not touch production code without a prior failing test.
   - **Benchmarks**: changes to reconnect backoff, message throughput, or codec must include a benchmark. Verify with `make bench`.
