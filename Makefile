@@ -1,4 +1,4 @@
-.PHONY: help test test-cover bench lint fmt check tidy clean
+.PHONY: help test test-cover bench lint fmt check tidy deps clean
 
 # Default target
 help: ## Show available commands
@@ -27,6 +27,10 @@ fmt: ## Format source files
 check: fmt lint test ## Run fmt, lint, and test (pre-commit gate)
 
 tidy: ## Tidy module dependencies
+	@GOWORK=off go mod tidy
+
+deps: ## Download all modules and sync go.sum, then tidy
+	@go mod download
 	@GOWORK=off go mod tidy
 
 clean: ## Remove build artifacts and test cache
