@@ -34,8 +34,11 @@ type Client interface {
 // internalClient is the unexported, concrete implementation of Client.
 //
 // Signal channels:
-//   - done            : closed by Close(); signals Send() and writePump to stop.
-//   - quit            : closed by Close(); signals reconnectLoop to stop.
+//   - done            : closed via once.Do on any permanent disconnect (explicit
+//     Close(), server drop without auto-reconnect, or max retries exhausted);
+//     signals Send() and writePump to stop.
+//   - quit            : closed together with done (same once.Do); signals
+//     reconnectLoop to stop.
 //   - connectionQuit  : closed by reconnectLoop when it successfully reconnects,
 //     telling the OLD writePump to yield so the NEW one can take over.
 //     Swapped (replaced with a fresh channel) on each reconnect.
@@ -45,8 +48,8 @@ type internalClient struct {
 	logger             *zap.Logger
 	connection         *websocket.Conn
 	send               chan []byte
-	done               chan struct{}  // closed only by Close()
-	quit               chan struct{}  // closed by Close() to stop reconnect loop
+	done               chan struct{}  // closed via once.Do on permanent disconnect
+	quit               chan struct{}  // closed together with done via once.Do
 	connectionQuit     chan struct{}  // closed to stop the current writePump; swapped on each reconnect
 	pumpDone           chan struct{}  // closed by writePump on exit; used by reconnectLoop to wait for the old pump
 	mu                 sync.Mutex     // guards connection, connectionQuit, and pumpDone across goroutines
