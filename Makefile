@@ -24,7 +24,14 @@ fmt: ## Format source files
 	@gofmt -w .
 	@goimports -w . 2>/dev/null || true
 
-check: fmt lint test ## Run fmt, lint, and test (pre-commit gate)
+check: ## Run fmt, lint, and test (pre-commit gate)
+	@echo "── fmt ──"
+	@$(MAKE) --no-print-directory fmt
+	@echo "── lint ──"
+	@$(MAKE) --no-print-directory lint
+	@echo "── test ──"
+	@$(MAKE) --no-print-directory test
+	@echo "── all passed ──"
 
 tidy: ## Tidy module dependencies
 	@GOWORK=off go mod tidy
