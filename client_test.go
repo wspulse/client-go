@@ -854,6 +854,107 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	}
 }
 
+func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
+	url := startEchoServer(t)
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+
+	_ = c.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got != nil {
+			t.Errorf("want nil error on normal Close(), got %v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
+func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
+	connected := make(chan wspulse.Connection, 1)
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+		wspulse.WithOnConnect(func(connection wspulse.Connection) {
+			connected <- connection
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for connection")
+	}
+
+	srv.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got == nil {
+			t.Error("want non-nil error on server drop, got nil")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
+func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+	)
+	ts := httptest.NewServer(srv)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(2, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	srv.Close()
+	ts.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got == nil {
+			t.Error("want non-nil error on max retries exhausted, got nil")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
 func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {

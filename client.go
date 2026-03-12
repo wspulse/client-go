@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,10 @@ import (
 
 	wspulse "github.com/wspulse/server"
 )
+
+// ErrRetriesExhausted is returned to OnDisconnect when all reconnect
+// attempts have been exhausted without establishing a connection.
+var ErrRetriesExhausted = errors.New("wspulse: max reconnect retries exhausted")
 
 // Client is the public interface for the WebSocket client.
 type Client interface {
@@ -82,12 +87,22 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 			defer c.goroutineWaitGroup.Done()
 			<-dropped
 			c.logger.Debug("wspulse/client: connection dropped permanently (no reconnect)")
+
+			// If done is already closed, Close() was called first — normal closure.
+			// Otherwise the server dropped the connection — abnormal.
+			var disconnectErr error
+			select {
+			case <-c.done:
+			default:
+				disconnectErr = fmt.Errorf("wspulse: connection lost")
+			}
+
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
 			})
 			if fn := c.config.onDisconnect; fn != nil {
-				fn(nil)
+				fn(disconnectErr)
 			}
 		}()
 	}
@@ -268,9 +283,10 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 }
 
 func (c *internalClient) reconnectLoop(dropped chan struct{}) {
+	var disconnectErr error
 	defer func() {
 		if fn := c.config.onDisconnect; fn != nil {
-			fn(nil)
+			fn(disconnectErr)
 		}
 	}()
 
@@ -278,6 +294,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	for {
 		select {
 		case <-c.quit:
+			// Close() was called — normal closure; disconnectErr stays nil.
 			return
 		case <-dropped:
 		}
@@ -286,6 +303,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			c.logger.Warn("wspulse/client: max retries exhausted, closing client",
 				zap.Int("max_retries", c.config.maxRetries),
 			)
+			disconnectErr = ErrRetriesExhausted
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
