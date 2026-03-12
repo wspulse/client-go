@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Bump `github.com/wspulse/core` to v0.2.0 (via `github.com/wspulse/server`)
+- Bump `github.com/wspulse/core` to v0.2.0 (direct) and `github.com/wspulse/server` to v0.2.0
 - `Frame.Event` (renamed from `Frame.Type`) and wire key `"event"` (renamed from `"type"`) — follows core v0.2.0 breaking change (**breaking**)
 - Added frame routing section to README
 

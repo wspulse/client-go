@@ -9,7 +9,7 @@ A Go WebSocket client with optional automatic reconnection, designed for use wit
 ## Design Goals
 
 - Thin client: connect, send, receive, auto-reconnect
-- Matches server-side `Frame` and `Codec` types via [wspulse/server](https://github.com/wspulse/server)
+- Matches server-side `Frame` and `Codec` types via [wspulse/core](https://github.com/wspulse/core)
 - Exponential backoff with configurable retries
 - Transport drop vs. permanent disconnect callbacks
 
@@ -27,7 +27,7 @@ go get github.com/wspulse/client-go
 
 ```go
 import (
-    wspulse "github.com/wspulse/server"
+    wspulse "github.com/wspulse/core"
     client  "github.com/wspulse/client-go"
 )
 
