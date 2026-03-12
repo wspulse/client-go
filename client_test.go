@@ -104,6 +104,20 @@ func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 	}
 }
 
+func TestDial_ErrorFormat(t *testing.T) {
+	_, err := client.Dial("ws://localhost:0/no-such-server")
+	if err == nil {
+		t.Fatal("expected error dialing unreachable server, got nil")
+	}
+	const wantPrefix = "wspulse: dial: "
+	if !strings.HasPrefix(err.Error(), wantPrefix) {
+		t.Errorf("error format: want prefix %q, got %q", wantPrefix, err.Error())
+	}
+	if errors.Unwrap(err) == nil {
+		t.Error("Dial error must wrap the underlying dial error")
+	}
+}
+
 func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 	url := startEchoServer(t)
 	c, err := client.Dial(url)

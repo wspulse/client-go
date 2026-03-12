@@ -74,7 +74,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		pumpDone:       pumpDone,
 	}
 	if err := c.dialOnce(); err != nil {
-		return nil, fmt.Errorf("wspulse/client: %w", err)
+		return nil, fmt.Errorf("wspulse: dial: %w", err)
 	}
 	c.logger.Debug("wspulse/client: connected",
 		zap.String("url", urlStr),
