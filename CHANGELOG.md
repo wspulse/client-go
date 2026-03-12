@@ -5,6 +5,7 @@
 ### Added
 
 - `ErrRetriesExhausted` sentinel error for max reconnect retries exhausted
+- `ErrConnectionLost` sentinel error for server-side drop without auto-reconnect
 
 ### Changed
 

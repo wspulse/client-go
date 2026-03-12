@@ -935,6 +935,52 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	}
 }
 
+func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
+	connected := make(chan struct{}, 1)
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+		wspulse.WithOnConnect(func(_ wspulse.Connection) {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for connection")
+	}
+
+	srv.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if !errors.Is(got, client.ErrConnectionLost) {
+			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
 func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {

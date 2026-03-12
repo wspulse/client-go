@@ -17,6 +17,10 @@ import (
 // attempts have been exhausted without establishing a connection.
 var ErrRetriesExhausted = errors.New("wspulse: max reconnect retries exhausted")
 
+// ErrConnectionLost is returned to OnDisconnect when the server drops the
+// connection and auto-reconnect is disabled.
+var ErrConnectionLost = errors.New("wspulse: connection lost")
+
 // Client is the public interface for the WebSocket client.
 type Client interface {
 	// Send enqueues f for delivery to the server.
@@ -100,7 +104,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 			select {
 			case <-c.done:
 			default:
-				disconnectErr = fmt.Errorf("wspulse: connection lost")
+				disconnectErr = ErrConnectionLost
 			}
 
 			c.once.Do(func() {
