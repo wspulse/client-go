@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -378,8 +379,10 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 }
 
 // backoff returns the delay before the next reconnect attempt.
-// It doubles on each attempt (capped at maxDelay).
-// The shift is capped at 62 bits to prevent integer overflow.
+// It uses equal jitter: the result is uniformly distributed in
+// [fullDelay/2, fullDelay], where fullDelay = base * 2^attempt
+// (capped at maxDelay). The shift is capped at 62 bits to prevent
+// integer overflow.
 func backoff(attempt int, base, max time.Duration) time.Duration {
 	const maxShift = 62
 	if attempt > maxShift {
@@ -389,5 +392,6 @@ func backoff(attempt int, base, max time.Duration) time.Duration {
 	if d > max || d <= 0 {
 		d = max
 	}
-	return d
+	half := d / 2
+	return half + time.Duration(rand.Int64N(int64(d-half+1)))
 }
