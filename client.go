@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
-	wspulse "github.com/wspulse/server"
+	wspulse "github.com/wspulse/core"
 )
 
 // ErrRetriesExhausted is returned to OnDisconnect when all reconnect

@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	wspulse "github.com/wspulse/server"
+	wspulse "github.com/wspulse/core"
 )
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
