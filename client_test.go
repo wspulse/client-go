@@ -608,7 +608,7 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	select {
 	case f := <-received:
 		if f.Event != "valid-frame" {
-			t.Fatalf("want type %q, got %q", "valid-frame", f.Event)
+			t.Fatalf("want event %q, got %q", "valid-frame", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for valid frame")
@@ -818,7 +818,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	select {
 	case f := <-received:
 		if f.Event != "before" {
-			t.Fatalf("want type %q, got %q", "before", f.Event)
+			t.Fatalf("want event %q, got %q", "before", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo before kick")
@@ -847,7 +847,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	select {
 	case f := <-received:
 		if f.Event != "after" {
-			t.Fatalf("want type %q, got %q", "after", f.Event)
+			t.Fatalf("want event %q, got %q", "after", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo after reconnect")

@@ -33,7 +33,7 @@ import (
 
 c, err := client.Dial("ws://localhost:8080/ws?room=r1&token=xyz",
     client.WithOnMessage(func(f wspulse.Frame) {
-        fmt.Printf("[%s] %s\n", f.Type, f.Payload)
+        fmt.Printf("[%s] %s\n", f.Event, f.Payload)
     }),
     client.WithAutoReconnect(5, time.Second, 30*time.Second),
 )
@@ -64,14 +64,14 @@ The `"event"` field is the routing key on the server. Set `frame.Event` to match
 
 ```go
 // Send a typed frame — server routes by "event"
-client.Send(server.Frame{
-    Event:    "chat.message",
+c.Send(wspulse.Frame{
+    Event:   "chat.message",
     Payload: []byte(`{"text":"hello world"}`),
 })
 
 // Receive typed frames
-client.WithOnMessage(func(f server.Frame) {
-    switch f.Type {
+client.WithOnMessage(func(f wspulse.Frame) {
+    switch f.Event {
     case "chat.message":
         // handle message
     case "chat.ack":

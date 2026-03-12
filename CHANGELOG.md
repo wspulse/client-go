@@ -14,7 +14,7 @@
 
 ### Added
 
-- `Client` with `Dial(url string, opts ...ClientOption) (*Client, error)`
+- `Client` with `Dial(url string, opts ...ClientOption) (Client, error)`
 - `Client.Send(frame wspulse.Frame) error`
 - `Client.Close() error` — waits for all internal goroutines to exit
 - `Client.Done() <-chan struct{}`
