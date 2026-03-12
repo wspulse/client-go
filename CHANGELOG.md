@@ -2,10 +2,14 @@
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-03-12
+
 ### Added
 
-- `ErrRetriesExhausted` sentinel error for max reconnect retries exhausted
-- `ErrConnectionLost` sentinel error for server-side drop without auto-reconnect
+- `ErrRetriesExhausted` sentinel error returned to `OnDisconnect` when max retries exhausted
+- `ErrConnectionLost` sentinel error returned to `OnDisconnect` on server-side drop (no auto-reconnect)
 
 ### Changed
 
@@ -17,6 +21,8 @@
 
 - `OnDisconnect` callback now receives a non-nil error on abnormal closure (server drop or retries exhausted); previously always received nil
 - Backoff function now applies equal jitter (`[delay/2, delay]`) to prevent thundering herd on mass reconnect
+- `Done()` GoDoc corrected: channel closes on any permanent disconnect, not only on `Close()`
+- `Dial` error now uses correct `wspulse: dial:` prefix per project convention
 
 ---
 
@@ -41,5 +47,6 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wspulse/client-go/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wspulse/client-go/releases/tag/v0.1.0
