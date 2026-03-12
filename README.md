@@ -82,6 +82,38 @@ client.WithOnMessage(func(f wspulse.Frame) {
 })
 ```
 
+## Event Routing with `core/router`
+
+`core/router` provides Gin-style middleware and per-event handler dispatch. When using the client, pass `nil` as the connection (client frames have no server-side `Connection` concept).
+
+```go
+import (
+    wspulse "github.com/wspulse/core"
+    "github.com/wspulse/core/router"
+    client  "github.com/wspulse/client-go"
+)
+
+rtr := router.New()
+rtr.Use(router.Recovery())
+
+rtr.On("chat.message", func(c *router.Context) {
+    fmt.Printf("[msg] %s\n", c.Frame.Payload)
+})
+rtr.On("chat.welcome", func(c *router.Context) {
+    fmt.Println("joined!")
+})
+
+c, _ := client.Dial("ws://localhost:8080/ws?room=r1&token=xyz",
+    client.WithOnMessage(func(f wspulse.Frame) {
+        rtr.Dispatch(nil, f) // no router.Connection on the client side
+    }),
+    client.WithAutoReconnect(5, time.Second, 30*time.Second),
+)
+defer c.Close()
+```
+
+See [wspulse/core](https://github.com/wspulse/core) for the full `router` API.
+
 ---
 
 ## Public API Surface
@@ -100,12 +132,12 @@ client.WithOnMessage(func(f wspulse.Frame) {
 | `WithOnReconnect(fn)`                    | —               |
 | `WithOnDisconnect(fn)`                   | —               |
 | `WithOnTransportDrop(fn)`                | —               |
-| `WithAutoReconnect(max, base, maxDelay)` | disabled        |
-| `WithHeartbeat(ping, pong, writeWait)`   | 20s / 60s / 10s |
-| `WithMaxMessageSize(n)`                  | 1 MiB           |
-| `WithCodec(c)`                           | JSONCodec       |
-| `WithDialHeaders(h)`                     | —               |
-| `WithLogger(l)`                          | zap.NewNop()    |
+| `WithAutoReconnect(max, base, maxDelay)` | disabled              |
+| `WithHeartbeat(ping, pong, writeWait)`   | 20s / 60s / 10s       |
+| `WithMaxMessageSize(n)`                  | 1 MiB                 |
+| `WithCodec(c)`                           | JSONCodec             |
+| `WithDialHeaders(h)`                     | —                     |
+| `WithLogger(l)`                          | zap.NewNop()          |
 
 ---
 
