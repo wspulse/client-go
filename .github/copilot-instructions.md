@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/core` for shared types (`Frame`, `Codec`).
+wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/core` for shared types (`Frame`, `Codec`). Test-only dependency on `github.com/wspulse/server` for echo server helpers.
 
 ## Architecture
 
@@ -58,12 +58,12 @@ make tidy       # tidy module dependencies
 5. **Goroutine lifecycle** — every goroutine launched must have an explicit, documented exit condition. `Close()` must guarantee all internal goroutines have exited before returning. Use `go.uber.org/goleak` in `TestMain` to catch leaks during testing.
 6. **No breaking changes without version bump** — never rename, remove, or change the signature of an exported symbol without bumping the major version. When unsure, add alongside the old symbol and deprecate.
 7. **STOP — test first, fix second** — when a bug is discovered or reported, do NOT touch production code until a failing test exists. Follow this exact sequence without skipping or reordering:
-   1. Write a failing test that reproduces the bug.
-   2. Run the test and confirm it **fails** (proving the test actually catches the bug).
-   3. Fix the production code.
-   4. Run the test again and confirm it **passes**.
-   5. Run `make check` to verify nothing else broke.
-   6. If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
+    1. Write a failing test that reproduces the bug.
+    2. Run the test and confirm it **fails** (proving the test actually catches the bug).
+    3. Fix the production code.
+    4. Run the test again and confirm it **passes**.
+    5. Run `make check` to verify nothing else broke.
+    6. If you are about to edit production code and no failing test exists yet — stop and go back to step 1.
 8. **STOP — before every commit, verify this checklist:**
     1. Run `make check` (fmt → lint → test) and confirm it passes. Skip if the commit contains only non-code changes (e.g. documentation, comments, Markdown).
     2. Run GitHub Copilot code review (`github.copilot.chat.review.changes`) on the working-tree diff and resolve every comment before proceeding.

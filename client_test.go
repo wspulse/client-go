@@ -46,14 +46,14 @@ func TestDial_SendAndReceive(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	frame := wspulse.Frame{Type: "echo", Payload: []byte(`"hello"`)}
+	frame := wspulse.Frame{Event: "echo", Payload: []byte(`"hello"`)}
 	if err := c.Send(frame); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
 	select {
 	case f := <-received:
-		if f.Type != "echo" {
-			t.Errorf("Type: want %q, got %q", "echo", f.Type)
+		if f.Event != "echo" {
+			t.Errorf("Event: want %q, got %q", "echo", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo")
@@ -77,7 +77,7 @@ func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 	_ = c.Close()
-	sendErr := c.Send(wspulse.Frame{Type: "msg"})
+	sendErr := c.Send(wspulse.Frame{Event: "msg"})
 	if !errors.Is(sendErr, wspulse.ErrConnectionClosed) {
 		t.Errorf("want ErrConnectionClosed, got %v", sendErr)
 	}
@@ -104,6 +104,20 @@ func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 	}
 }
 
+func TestDial_ErrorFormat(t *testing.T) {
+	_, err := client.Dial("ws://localhost:0/no-such-server")
+	if err == nil {
+		t.Fatal("expected error dialing unreachable server, got nil")
+	}
+	const wantPrefix = "wspulse: dial: "
+	if !strings.HasPrefix(err.Error(), wantPrefix) {
+		t.Errorf("error format: want prefix %q, got %q", wantPrefix, err.Error())
+	}
+	if errors.Unwrap(err) == nil {
+		t.Error("Dial error must wrap the underlying dial error")
+	}
+}
+
 func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 	url := startEchoServer(t)
 	c, err := client.Dial(url)
@@ -118,7 +132,7 @@ func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				_ = c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`"x"`)})
+				_ = c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`"x"`)})
 			}
 		}()
 	}
@@ -163,7 +177,7 @@ func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 			return "room", "echo-1", nil
 		},
 		wspulse.WithOnConnect(func(connection wspulse.Connection) {
-			_ = connection.Send(wspulse.Frame{Type: "trigger"})
+			_ = connection.Send(wspulse.Frame{Event: "trigger"})
 		}),
 	)
 	ts := httptest.NewServer(srv)
@@ -226,7 +240,7 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 		t.Fatal("timed out: Done() did not fire after server disconnect")
 	}
 
-	if err := c.Send(wspulse.Frame{Type: "msg"}); err != wspulse.ErrConnectionClosed {
+	if err := c.Send(wspulse.Frame{Event: "msg"}); err != wspulse.ErrConnectionClosed {
 		t.Fatalf("want ErrConnectionClosed, got %v", err)
 	}
 }
@@ -437,7 +451,7 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 	}
 
 	bigPayload := []byte(`"` + strings.Repeat("x", 100) + `"`)
-	_ = serverConnection.Send(wspulse.Frame{Type: "big", Payload: bigPayload})
+	_ = serverConnection.Send(wspulse.Frame{Event: "big", Payload: bigPayload})
 
 	select {
 	case <-dropped:
@@ -562,7 +576,7 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 
 	sawFull := false
 	for i := 0; i < 1000; i++ {
-		err := c.Send(wspulse.Frame{Type: "flood", Payload: []byte(`"x"`)})
+		err := c.Send(wspulse.Frame{Event: "flood", Payload: []byte(`"x"`)})
 		if errors.Is(err, wspulse.ErrSendBufferFull) {
 			sawFull = true
 			break
@@ -600,15 +614,15 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	time.Sleep(100 * time.Millisecond)
-	frame := wspulse.Frame{Type: "valid-frame", Payload: []byte(`"ok"`)}
+	frame := wspulse.Frame{Event: "valid-frame", Payload: []byte(`"ok"`)}
 	if err := srv.Send("c1", frame); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
 
 	select {
 	case f := <-received:
-		if f.Type != "valid-frame" {
-			t.Fatalf("want type %q, got %q", "valid-frame", f.Type)
+		if f.Event != "valid-frame" {
+			t.Fatalf("want event %q, got %q", "valid-frame", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for valid frame")
@@ -767,7 +781,7 @@ func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	err = c.Send(wspulse.Frame{Type: "msg"})
+	err = c.Send(wspulse.Frame{Event: "msg"})
 	if err == nil {
 		t.Fatal("expected encode error, got nil")
 	}
@@ -812,13 +826,13 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Verify initial connectivity.
-	if err := c.Send(wspulse.Frame{Type: "before", Payload: []byte(`"1"`)}); err != nil {
+	if err := c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}); err != nil {
 		t.Fatalf("Send before kick: %v", err)
 	}
 	select {
 	case f := <-received:
-		if f.Type != "before" {
-			t.Fatalf("want type %q, got %q", "before", f.Type)
+		if f.Event != "before" {
+			t.Fatalf("want event %q, got %q", "before", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo before kick")
@@ -841,16 +855,163 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify post-reconnect message delivery.
-	if err := c.Send(wspulse.Frame{Type: "after", Payload: []byte(`"2"`)}); err != nil {
+	if err := c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}); err != nil {
 		t.Fatalf("Send after reconnect: %v", err)
 	}
 	select {
 	case f := <-received:
-		if f.Type != "after" {
-			t.Fatalf("want type %q, got %q", "after", f.Type)
+		if f.Event != "after" {
+			t.Fatalf("want event %q, got %q", "after", f.Event)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo after reconnect")
+	}
+}
+
+func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
+	url := startEchoServer(t)
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+
+	_ = c.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got != nil {
+			t.Errorf("want nil error on normal Close(), got %v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
+func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
+	connected := make(chan wspulse.Connection, 1)
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+		wspulse.WithOnConnect(func(connection wspulse.Connection) {
+			connected <- connection
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for connection")
+	}
+
+	srv.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got == nil {
+			t.Error("want non-nil error on server drop, got nil")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
+func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
+	connected := make(chan struct{}, 1)
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+		wspulse.WithOnConnect(func(_ wspulse.Connection) {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for connection")
+	}
+
+	srv.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if !errors.Is(got, client.ErrConnectionLost) {
+			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+}
+
+func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+	)
+	ts := httptest.NewServer(srv)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(2, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	srv.Close()
+	ts.Close()
+
+	select {
+	case got := <-disconnectErr:
+		if got == nil {
+			t.Error("want non-nil error on max retries exhausted, got nil")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
 	}
 }
 

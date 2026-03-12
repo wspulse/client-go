@@ -9,7 +9,7 @@ A Go WebSocket client with optional automatic reconnection, designed for use wit
 ## Design Goals
 
 - Thin client: connect, send, receive, auto-reconnect
-- Matches server-side `Frame` and `Codec` types via [wspulse/server](https://github.com/wspulse/server)
+- Matches server-side `Frame` and `Codec` types via [wspulse/core](https://github.com/wspulse/core)
 - Exponential backoff with configurable retries
 - Transport drop vs. permanent disconnect callbacks
 
@@ -27,13 +27,13 @@ go get github.com/wspulse/client-go
 
 ```go
 import (
-    wspulse "github.com/wspulse/server"
+    wspulse "github.com/wspulse/core"
     client  "github.com/wspulse/client-go"
 )
 
 c, err := client.Dial("ws://localhost:8080/ws?room=r1&token=xyz",
     client.WithOnMessage(func(f wspulse.Frame) {
-        fmt.Printf("[%s] %s\n", f.Type, f.Payload)
+        fmt.Printf("[%s] %s\n", f.Event, f.Payload)
     }),
     client.WithAutoReconnect(5, time.Second, 30*time.Second),
 )
@@ -42,8 +42,44 @@ if err != nil {
 }
 defer c.Close()
 
-c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`{"text":"hello"}`)})
+c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`{"text":"hello"}`)})
 <-c.Done()
+```
+
+---
+
+## Frame Types and Server-Side Routing
+
+Every frame sent or received is a JSON object on the wire:
+
+```json
+{
+  "id": "msg-001",
+  "event": "chat.message",
+  "payload": { "text": "hello" }
+}
+```
+
+The `"event"` field is the routing key on the server. Set `frame.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
+
+```go
+// Send a typed frame — server routes by "event"
+c.Send(wspulse.Frame{
+    Event:   "chat.message",
+    Payload: []byte(`{"text":"hello world"}`),
+})
+
+// Receive typed frames
+client.WithOnMessage(func(f wspulse.Frame) {
+    switch f.Event {
+    case "chat.message":
+        // handle message
+    case "chat.ack":
+        // handle acknowledgement
+    case "pong":
+        // heartbeat response
+    }
+})
 ```
 
 ---

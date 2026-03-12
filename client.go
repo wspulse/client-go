@@ -1,15 +1,25 @@
 package client
 
 import (
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
-	wspulse "github.com/wspulse/server"
+	wspulse "github.com/wspulse/core"
 )
+
+// ErrRetriesExhausted is returned to OnDisconnect when all reconnect
+// attempts have been exhausted without establishing a connection.
+var ErrRetriesExhausted = errors.New("wspulse: max reconnect retries exhausted")
+
+// ErrConnectionLost is returned to OnDisconnect when the server drops the
+// connection and auto-reconnect is disabled.
+var ErrConnectionLost = errors.New("wspulse: connection lost")
 
 // Client is the public interface for the WebSocket client.
 type Client interface {
@@ -19,15 +29,20 @@ type Client interface {
 	// Close terminates the connection and stops any reconnect loop.
 	Close() error
 
-	// Done returns a channel closed when Close() is called.
+	// Done returns a channel closed when the client permanently disconnects.
+	// This includes an explicit Close() call, a server-side drop when
+	// auto-reconnect is disabled, or max reconnect retries being exhausted.
 	Done() <-chan struct{}
 }
 
 // internalClient is the unexported, concrete implementation of Client.
 //
 // Signal channels:
-//   - done            : closed by Close(); signals Send() and writePump to stop.
-//   - quit            : closed by Close(); signals reconnectLoop to stop.
+//   - done            : closed via once.Do on any permanent disconnect (explicit
+//     Close(), server drop without auto-reconnect, or max retries exhausted);
+//     signals Send() and writePump to stop.
+//   - quit            : closed together with done (same once.Do); signals
+//     reconnectLoop to stop.
 //   - connectionQuit  : closed by reconnectLoop when it successfully reconnects,
 //     telling the OLD writePump to yield so the NEW one can take over.
 //     Swapped (replaced with a fresh channel) on each reconnect.
@@ -37,8 +52,8 @@ type internalClient struct {
 	logger             *zap.Logger
 	connection         *websocket.Conn
 	send               chan []byte
-	done               chan struct{}  // closed only by Close()
-	quit               chan struct{}  // closed by Close() to stop reconnect loop
+	done               chan struct{}  // closed via once.Do on permanent disconnect
+	quit               chan struct{}  // closed together with done via once.Do
 	connectionQuit     chan struct{}  // closed to stop the current writePump; swapped on each reconnect
 	pumpDone           chan struct{}  // closed by writePump on exit; used by reconnectLoop to wait for the old pump
 	mu                 sync.Mutex     // guards connection, connectionQuit, and pumpDone across goroutines
@@ -66,7 +81,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		pumpDone:       pumpDone,
 	}
 	if err := c.dialOnce(); err != nil {
-		return nil, fmt.Errorf("wspulse/client: %w", err)
+		return nil, fmt.Errorf("wspulse: dial: %w", err)
 	}
 	c.logger.Debug("wspulse/client: connected",
 		zap.String("url", urlStr),
@@ -82,12 +97,22 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 			defer c.goroutineWaitGroup.Done()
 			<-dropped
 			c.logger.Debug("wspulse/client: connection dropped permanently (no reconnect)")
+
+			// If done is already closed, Close() was called first — normal closure.
+			// Otherwise the server dropped the connection — abnormal.
+			var disconnectErr error
+			select {
+			case <-c.done:
+			default:
+				disconnectErr = ErrConnectionLost
+			}
+
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
 			})
 			if fn := c.config.onDisconnect; fn != nil {
-				fn(nil)
+				fn(disconnectErr)
 			}
 		}()
 	}
@@ -140,7 +165,7 @@ func (c *internalClient) Close() error {
 	return nil
 }
 
-// Done returns a channel closed when Close() is called.
+// Done returns a channel closed when the client permanently disconnects.
 func (c *internalClient) Done() <-chan struct{} { return c.done }
 
 // ── internal ──────────────────────────────────────────────────────────────────
@@ -268,9 +293,10 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 }
 
 func (c *internalClient) reconnectLoop(dropped chan struct{}) {
+	var disconnectErr error
 	defer func() {
 		if fn := c.config.onDisconnect; fn != nil {
-			fn(nil)
+			fn(disconnectErr)
 		}
 	}()
 
@@ -278,6 +304,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	for {
 		select {
 		case <-c.quit:
+			// Close() was called — normal closure; disconnectErr stays nil.
 			return
 		case <-dropped:
 		}
@@ -286,6 +313,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			c.logger.Warn("wspulse/client: max retries exhausted, closing client",
 				zap.Int("max_retries", c.config.maxRetries),
 			)
+			disconnectErr = ErrRetriesExhausted
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
@@ -360,8 +388,10 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 }
 
 // backoff returns the delay before the next reconnect attempt.
-// It doubles on each attempt (capped at maxDelay).
-// The shift is capped at 62 bits to prevent integer overflow.
+// It uses equal jitter: the result is uniformly distributed in
+// [fullDelay/2, fullDelay], where fullDelay = base * 2^attempt
+// (capped at maxDelay). The shift is capped at 62 bits to prevent
+// integer overflow.
 func backoff(attempt int, base, max time.Duration) time.Duration {
 	const maxShift = 62
 	if attempt > maxShift {
@@ -371,5 +401,6 @@ func backoff(attempt int, base, max time.Duration) time.Duration {
 	if d > max || d <= 0 {
 		d = max
 	}
-	return d
+	half := d / 2
+	return half + time.Duration(rand.Int64N(int64(d-half+1)))
 }

@@ -45,9 +45,9 @@ All commit messages must be in English.
 
 ## Naming Conventions
 
-- Use full words for all identifiers. Cryptic abbreviations are not acceptable.
-- Banned: `sess`, `conn`, `svc`, `mgr`, `recv`, `svr`, `tbl`, `hdlr`, `dlg`, `desc`, `proc`, `coll`.
-- Allowed short forms: ID, URL, HTTP, API, JSON, Msg, Err, Ctx, Buf, Cfg, and others listed in the copilot instructions.
+- **Interface names** must use full words — no abbreviations. Write `Connection`, not `Conn`.
+- **Variable and parameter names** follow standard Go style: single-letter or short receivers, idiomatic short names for local scope (`conn`, `fn`, `err`, `ok`, `n`, `i`, `v`).
+- Banned in interface/type names: `Conn`, `Cfg`, `Mgr`, `Svc`, `Svr`, `Hdlr`, `Sess`, `Recv`, `Tbl`, `Dlg`, `Proc`, `Coll`.
 
 ## Thread Safety
 
