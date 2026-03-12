@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/server` for shared types (`Frame`, `Codec`).
+wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/core` for shared types (`Frame`, `Codec`). Test-only dependency on `github.com/wspulse/server` for echo server helpers.
 
 ## Architecture
 
