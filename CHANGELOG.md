@@ -2,11 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ErrRetriesExhausted` sentinel error for max reconnect retries exhausted
+
 ### Changed
 
 - Bump `github.com/wspulse/core` to v0.2.0 (via `github.com/wspulse/server`)
 - `Frame.Event` (renamed from `Frame.Type`) and wire key `"event"` (renamed from `"type"`) — follows core v0.2.0 breaking change (**breaking**)
 - Added frame routing section to README
+
+### Fixed
+
+- `OnDisconnect` callback now receives a non-nil error on abnormal closure (server drop or retries exhausted); previously always received nil
+- Backoff function now applies equal jitter (`[delay/2, delay]`) to prevent thundering herd on mass reconnect
 
 ---
 
@@ -18,7 +27,7 @@
 - `Client.Send(frame wspulse.Frame) error`
 - `Client.Close() error` — waits for all internal goroutines to exit
 - `Client.Done() <-chan struct{}`
-- Automatic reconnect with exponential backoff and jitter
+- Automatic reconnect with exponential backoff
 - `WithOnMessage(fn func(wspulse.Frame))`, `WithOnReconnect(fn func(attempt int))`
 - `WithOnDisconnect(fn func(err error))`, `WithOnTransportDrop(fn func(err error))`
 - `WithAutoReconnect(maxRetries int, baseDelay, maxDelay time.Duration)`
