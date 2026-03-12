@@ -70,8 +70,9 @@ func WithOnReconnect(fn func(attempt int)) ClientOption {
 // WithOnDisconnect registers a callback invoked when the client permanently
 // disconnects. When auto-reconnect is enabled this fires only after all
 // retries are exhausted or Close() is called — not on every transport drop.
-// When auto-reconnect is disabled it fires once when the connection dies.
-// err is nil for a normal closure.
+// When auto-reconnect is disabled it fires once when the client permanently
+// disconnects, whether triggered by a server-side drop or an explicit Close().
+// err is nil for a normal closure (Close() was called).
 func WithOnDisconnect(fn func(err error)) ClientOption {
 	return func(c *clientConfig) { c.onDisconnect = fn }
 }

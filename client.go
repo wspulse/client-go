@@ -25,7 +25,9 @@ type Client interface {
 	// Close terminates the connection and stops any reconnect loop.
 	Close() error
 
-	// Done returns a channel closed when Close() is called.
+	// Done returns a channel closed when the client permanently disconnects.
+	// This includes an explicit Close() call, a server-side drop when
+	// auto-reconnect is disabled, or max reconnect retries being exhausted.
 	Done() <-chan struct{}
 }
 
@@ -156,7 +158,7 @@ func (c *internalClient) Close() error {
 	return nil
 }
 
-// Done returns a channel closed when Close() is called.
+// Done returns a channel closed when the client permanently disconnects.
 func (c *internalClient) Done() <-chan struct{} { return c.done }
 
 // ── internal ──────────────────────────────────────────────────────────────────
