@@ -1084,8 +1084,22 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	// Kill connection; the reconnect loop enters a 10 s backoff.
-	_ = srv.Kick("c1")
+	// Poll until the hub has registered the session, then kick it.
+	// Kick returns ErrConnectionNotFound if called before the hub processes
+	// the join message, which causes a flaky transport-drop timeout.
+	kickDeadline := time.Now().Add(2 * time.Second)
+	var lastKickErr error
+	for {
+		if err := srv.Kick("c1"); err != nil {
+			lastKickErr = err
+			if time.Now().After(kickDeadline) {
+				t.Fatalf("server did not register c1 within 2s (last error: %v)", lastKickErr)
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		break
+	}
 
 	select {
 	case <-transportDropped:
