@@ -4,6 +4,14 @@
 
 ---
 
+## [0.2.1] - 2026-03-13
+
+### Changed
+
+- Bump `github.com/wspulse/server` to v0.3.0 (test-only dependency; server package renamed to `wspulse`)
+
+---
+
 ## [0.2.0] - 2026-03-12
 
 ### Added
