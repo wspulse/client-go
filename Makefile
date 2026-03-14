@@ -24,9 +24,10 @@ fmt: ## Format source files
 	@gofmt -w .
 	@go run golang.org/x/tools/cmd/goimports@latest -local github.com/wspulse -w .
 
-check: ## Run fmt, lint, and test (pre-commit gate)
+check: ## Run fmt-check, lint, and test (pre-commit gate)
 	@echo "── fmt ──"
-	@$(MAKE) --no-print-directory fmt
+	@test -z "$$(gofmt -l .)" || (echo "formatting issues — run 'make fmt'"; exit 1)
+	@test -z "$$(go run golang.org/x/tools/cmd/goimports@latest -local github.com/wspulse -l .)" || (echo "import issues — run 'make fmt'"; exit 1)
 	@echo "── lint ──"
 	@$(MAKE) --no-print-directory lint
 	@echo "── test ──"
