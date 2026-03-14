@@ -151,11 +151,21 @@ See [wspulse/core](https://github.com/wspulse/core) for the full `router` API.
 - **Backpressure** — bounded send buffer; `ErrSendBufferFull` returned when full.
 - **Swappable codec** — JSON by default; plug in any `Codec` implementation.
 
+## Development
+
+```bash
+make fmt        # auto-format source files (gofmt + goimports)
+make check      # validate format, lint, test with race detector (pre-commit gate)
+make test       # go test -race -count=3 ./...
+make test-cover # go test with coverage report → coverage.html
+make bench      # run benchmarks with memory allocation stats
+make tidy       # go mod tidy (GOWORK=off)
+make clean      # remove build artifacts and test cache
+```
+
 ---
 
-## Related Modules
-
-| Module                                              | Description             |
+## Related Modules             |
 | --------------------------------------------------- | ----------------------- |
 | [wspulse/core](https://github.com/wspulse/core)     | Shared types and codecs |
 | [wspulse/server](https://github.com/wspulse/server) | WebSocket server        |
