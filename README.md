@@ -1,5 +1,9 @@
 # wspulse/client-go
 
+[![CI](https://github.com/wspulse/client-go/actions/workflows/ci.yml/badge.svg)](https://github.com/wspulse/client-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/wspulse/client-go.svg)](https://pkg.go.dev/github.com/wspulse/client-go)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A Go WebSocket client with optional automatic reconnection, designed for use with [wspulse/server](https://github.com/wspulse/server).
 
 **Status:** v0 — API is being stabilized. Module path: `github.com/wspulse/client-go`.
