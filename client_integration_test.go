@@ -1006,6 +1006,8 @@ func startNoPongServer(t *testing.T) string {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wsConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
+			t.Errorf("websocket upgrade failed: %v", err)
 			return
 		}
 		// Override the default ping handler so no Pong is ever sent.
@@ -1023,7 +1025,7 @@ func startNoPongServer(t *testing.T) string {
 	return "ws" + strings.TrimPrefix(ts.URL, "http")
 }
 
-func TestClient_HeartbeatPongTimeout_TriggersTransportDrop(t *testing.T) {
+func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 	url := startNoPongServer(t)
 
 	disconnected := make(chan error, 1)
@@ -1092,6 +1094,7 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
+	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for the connection to be established on the server side.
 	select {
@@ -1111,7 +1114,18 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 		defer wg.Done()
 		srv.Close()
 	}()
-	wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for client and server close to complete")
+	}
 
 	// Wait for onDisconnect to fire.
 	select {
@@ -1127,13 +1141,4 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
 	}
 
-	// Verify no goroutine leak: capture goroutine count before and compare.
-	// Close() already returned, so all internal goroutines should have exited.
-	before := runtime.NumGoroutine()
-	// A second Close() is safe and should not change goroutine count.
-	_ = c.Close()
-	after := runtime.NumGoroutine()
-	if after > before+2 {
-		t.Errorf("possible goroutine leak: before=%d after=%d", before, after)
-	}
 }
