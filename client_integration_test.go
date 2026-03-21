@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
 	wspulse "github.com/wspulse/server"
@@ -992,4 +993,153 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Close() hung during backoff — timer not stopped")
 	}
+}
+
+// startNoPongServer creates a raw WebSocket server that accepts connections
+// but never replies to Ping frames. This is achieved by overriding the default
+// ping handler (which normally sends an automatic Pong) with a no-op.
+// The server keeps the connection alive by reading messages in a loop until
+// the connection is closed.
+func startNoPongServer(t *testing.T) string {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
+			t.Errorf("websocket upgrade failed: %v", err)
+			return
+		}
+		// Override the default ping handler so no Pong is ever sent.
+		wsConn.SetPingHandler(func(string) error { return nil })
+		defer wsConn.Close()
+		// Keep reading to hold the connection open; exit on any error.
+		for {
+			if _, _, err := wsConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+	return "ws" + strings.TrimPrefix(ts.URL, "http")
+}
+
+func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
+	url := startNoPongServer(t)
+
+	disconnected := make(chan error, 1)
+	c, err := client.Dial(url,
+		// Fast ping interval (100ms), short pong timeout (300ms), generous write wait.
+		client.WithHeartbeat(100*time.Millisecond, 300*time.Millisecond, 10*time.Second),
+		client.WithOnDisconnect(func(err error) {
+			disconnected <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// The client should detect the missing Pong within pongWait (300ms).
+	// Allow generous headroom for CI.
+	select {
+	case got := <-disconnected:
+		if got == nil {
+			t.Error("want non-nil error (ErrConnectionLost) on pong timeout, got nil")
+		}
+		if !errors.Is(got, client.ErrConnectionLost) {
+			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect after pong timeout")
+	}
+
+	// Done() should also be closed.
+	select {
+	case <-c.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Done() not closed after pong timeout disconnect")
+	}
+}
+
+func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
+	connected := make(chan struct{}, 1)
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "race-1", nil
+		},
+		wspulse.WithOnConnect(func(_ wspulse.Connection) {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	var disconnectCount atomic.Int32
+	disconnectDone := make(chan struct{}, 1)
+	c, err := client.Dial(url,
+		client.WithOnDisconnect(func(err error) {
+			disconnectCount.Add(1)
+			select {
+			case disconnectDone <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Wait for the connection to be established on the server side.
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for server to register connection")
+	}
+
+	// Simultaneously close the client and drop the server connection.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = c.Close()
+	}()
+	go func() {
+		defer wg.Done()
+		srv.Close()
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for client and server close to complete")
+	}
+
+	// Wait for onDisconnect to fire.
+	select {
+	case <-disconnectDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+
+	// Allow a short grace period for any spurious second invocations.
+	time.Sleep(200 * time.Millisecond)
+
+	if count := disconnectCount.Load(); count != 1 {
+		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
+	}
+
 }
