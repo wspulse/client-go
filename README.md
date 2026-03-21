@@ -142,7 +142,25 @@ See [wspulse/core](https://github.com/wspulse/core) for the full `router` API.
 | `WithMaxMessageSize(n)`                  | 1 MiB                 |
 | `WithCodec(c)`                           | JSONCodec             |
 | `WithDialHeaders(h)`                     | —                     |
-| `WithLogger(l)`                          | zap.NewNop()          |
+| `WithLogger(l)`                          | `zap.NewProduction()` |
+
+---
+
+## Logging
+
+The client logs internal diagnostics via [zap](https://github.com/go-uber/zap). By default a production logger is used (JSON format, Info+ level).
+
+**Replace the logger** with your own:
+
+```go
+c, _ := client.Dial(url, client.WithLogger(myZapLogger))
+```
+
+**Disable logging:**
+
+```go
+c, _ := client.Dial(url, client.WithLogger(zap.NewNop()))
+```
 
 ---
 

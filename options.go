@@ -44,7 +44,7 @@ type clientConfig struct {
 func defaultClientConfig() *clientConfig {
 	return &clientConfig{
 		codec:          wspulse.JSONCodec,
-		logger:         zap.NewNop(),
+		logger:         zap.Must(zap.NewProduction()),
 		autoReconnect:  false,
 		maxRetries:     10,
 		baseDelay:      1 * time.Second,
