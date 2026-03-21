@@ -1078,6 +1078,7 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
 	url := "ws" + strings.TrimPrefix(ts.URL, "http")
 
 	var disconnectCount atomic.Int32

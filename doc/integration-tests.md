@@ -21,7 +21,7 @@ the HTTP control endpoint.
 | 4   | Max retries exhausted → `onDisconnect(ErrRetriesExhausted)`         | `TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone`         |
 | 5   | `Close()` during reconnect → loop stops, `onDisconnect(nil)`        | `TestClient_AutoReconnect_CloseDuringBackoff`                     |
 | 6   | `Send()` on closed client → `ErrConnectionClosed`                   | `TestClient_Send_AfterClose_ReturnsErrConnectionClosed`           |
-| 7   | Heartbeat pong timeout → `ErrConnectionLost`                        | `TestClient_HeartbeatPongTimeout_TriggersTransportDrop`            |
+| 7   | Heartbeat pong timeout → `ErrConnectionLost`                        | `TestClient_HeartbeatPongTimeout_DisconnectsClient`                |
 | 8   | Concurrent sends: no data race or interleaving                      | `TestClient_ConcurrentSendAndClose_NoRace`                        |
 | 9   | Concurrent `Close()` + transport drop → `onDisconnect` exactly once | `TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce` |
 
