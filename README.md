@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/wspulse/client-go/actions/workflows/ci.yml/badge.svg)](https://github.com/wspulse/client-go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/wspulse/client-go.svg)](https://pkg.go.dev/github.com/wspulse/client-go)
+[![Go](https://img.shields.io/badge/Go-1.26-blue.svg?logo=go)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A Go WebSocket client with optional automatic reconnection, designed for use with [wspulse/server](https://github.com/wspulse/server).
