@@ -4,6 +4,23 @@
 
 ---
 
+## [0.2.2] - 2026-03-21
+
+### Changed
+
+- Default logger changed from `zap.NewNop()` to `zap.NewProduction()`. Internal
+  diagnostics (decode failures, reconnect lifecycle, transport drops) are now
+  visible by default. Use `WithLogger(zap.NewNop())` to disable.
+
+### Added
+
+- Integration tests: heartbeat pong timeout (scenario 7), concurrent
+  close/transport-drop race (scenario 9).
+- CI/CD: auto-label on PR opened, tag-triggered GitHub Release, `release.yml`
+  changelog categories, CD workflow.
+
+---
+
 ## [0.2.1] - 2026-03-13
 
 ### Changed
