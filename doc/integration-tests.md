@@ -21,15 +21,16 @@ the HTTP control endpoint.
 | 4   | Max retries exhausted → `onDisconnect(ErrRetriesExhausted)`         | `TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone`         |
 | 5   | `Close()` during reconnect → loop stops, `onDisconnect(nil)`        | `TestClient_AutoReconnect_CloseDuringBackoff`                     |
 | 6   | `Send()` on closed client → `ErrConnectionClosed`                   | `TestClient_Send_AfterClose_ReturnsErrConnectionClosed`           |
-| 7   | Heartbeat pong timeout → `ErrConnectionLost`                        | — *(not covered)*                                                 |
+| 7   | Heartbeat pong timeout → `ErrConnectionLost`                        | `TestClient_HeartbeatPongTimeout_DisconnectsClient`                |
 | 8   | Concurrent sends: no data race or interleaving                      | `TestClient_ConcurrentSendAndClose_NoRace`                        |
-| 9   | Concurrent `Close()` + transport drop → `onDisconnect` exactly once | — *(not covered)*                                                 |
+| 9   | Concurrent `Close()` + transport drop → `onDisconnect` exactly once | `TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce` |
 
 > **Coverage notes:**
 > - Scenario 2 asserts `onDisconnect(ErrConnectionLost)`; `onTransportDrop` without `autoReconnect` has no dedicated test.
 > - Scenario 4 asserts `Done()` closes; the `ErrRetriesExhausted` error type is verified separately by `TestClient_OnDisconnect_NonNilOnMaxRetries` (non-nil only).
 > - Scenario 5 verifies `Close()` unblocks the reconnect loop but does not assert `onDisconnect(nil)`.
-> - Scenarios 7 and 9 have no corresponding test.
+> - Scenario 7 uses a raw WebSocket server (no-pong) to verify read-deadline timeout triggers `ErrConnectionLost`.
+> - Scenario 9 races `Close()` against `srv.Close()` and asserts `onDisconnect` fires exactly once with no goroutine leak.
 
 ## Additional Tests
 
@@ -59,4 +60,4 @@ the HTTP control endpoint.
 | `TestClient_WithLogger_ValidLogger_Applied`            | `WithLogger` option is accepted without error                               |
 | `TestClient_WithHeartbeat_ValidParams_Applied`         | `WithHeartbeat` option is accepted without error                            |
 
-**Total: 30 integration tests** (7 scenarios covered + 2 gaps; 23 additional).
+**Total: 32 integration tests** (9 scenarios covered; 23 additional).
