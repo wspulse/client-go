@@ -16,8 +16,8 @@ const (
 	maxWriteWait    = 30 * time.Second // WithHeartbeat: writeWait upper bound
 	maxMsgSizeBytes = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
 	maxBaseDelay    = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
-	maxMaxDelay     = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
-	maxMaxRetries   = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
+	maxDelayLimit   = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
+	maxRetriesLimit = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
 )
 
 // ClientOption configures a Client.
@@ -109,10 +109,10 @@ func WithAutoReconnect(maxRetries int, baseDelay, maxDelay time.Duration) Client
 	if maxDelay < baseDelay {
 		panic("wspulse: autoReconnect.maxDelay must be >= autoReconnect.baseDelay")
 	}
-	if maxDelay > maxMaxDelay {
+	if maxDelay > maxDelayLimit {
 		panic("wspulse: autoReconnect.maxDelay exceeds maximum (5m)")
 	}
-	if maxRetries > maxMaxRetries {
+	if maxRetries > maxRetriesLimit {
 		panic("wspulse: autoReconnect.maxRetries exceeds maximum (32)")
 	}
 	return func(c *clientConfig) {
