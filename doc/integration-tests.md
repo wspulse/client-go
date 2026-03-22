@@ -1,7 +1,7 @@
 # Integration Test Coverage — client-go
 
 > **Contract:** all scenarios defined in
-> [`.github/doc/contracts/integration-test-scenarios.md`](https://github.com/wspulse/.github/blob/main/doc/contracts/integration-test-scenarios.md)
+> [`.github/doc/contracts/client/integration-test-scenarios.md`](https://github.com/wspulse/.github/blob/main/doc/contracts/client/integration-test-scenarios.md)
 
 Integration tests run against a live `wspulse/server` embedded in-process via
 `httptest.NewServer`. Because client-go can import the server package directly,
