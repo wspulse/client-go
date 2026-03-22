@@ -149,7 +149,7 @@ func WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration) ClientOption {
 		panic("wspulse: writeWait must be positive")
 	}
 	if pingPeriod >= pongWait {
-		panic("wspulse: heartbeat.pingPeriod must be strictly less than pongWait")
+		panic("wspulse: heartbeat.pingPeriod must be strictly less than heartbeat.pongWait")
 	}
 	if pingPeriod > maxPingPeriod {
 		panic("wspulse: heartbeat.pingPeriod exceeds maximum (1m)")
