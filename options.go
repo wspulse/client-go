@@ -107,7 +107,7 @@ func WithAutoReconnect(maxRetries int, baseDelay, maxDelay time.Duration) Client
 		panic("wspulse: autoReconnect.baseDelay exceeds maximum (1m)")
 	}
 	if maxDelay < baseDelay {
-		panic("wspulse: autoReconnect.maxDelay must be >= baseDelay")
+		panic("wspulse: autoReconnect.maxDelay must be >= autoReconnect.baseDelay")
 	}
 	if maxDelay > maxMaxDelay {
 		panic("wspulse: autoReconnect.maxDelay exceeds maximum (5m)")

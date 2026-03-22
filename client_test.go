@@ -126,7 +126,7 @@ func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
 		{"baseDelay zero", 3, 0, 30 * time.Second, "wspulse: autoReconnect.baseDelay must be positive"},
 		{"baseDelay negative", 3, -1 * time.Second, 30 * time.Second, "wspulse: autoReconnect.baseDelay must be positive"},
 		{"baseDelay exceeds max", 3, 2 * time.Minute, 3 * time.Minute, "wspulse: autoReconnect.baseDelay exceeds maximum (1m)"},
-		{"maxDelay < baseDelay", 3, 5 * time.Second, 1 * time.Second, "wspulse: autoReconnect.maxDelay must be >= baseDelay"},
+		{"maxDelay < baseDelay", 3, 5 * time.Second, 1 * time.Second, "wspulse: autoReconnect.maxDelay must be >= autoReconnect.baseDelay"},
 		{"maxDelay exceeds max", 3, 1 * time.Second, 6 * time.Minute, "wspulse: autoReconnect.maxDelay exceeds maximum (5m)"},
 		{"maxRetries exceeds max", 33, 1 * time.Second, 30 * time.Second, "wspulse: autoReconnect.maxRetries exceeds maximum (32)"},
 	}
@@ -166,11 +166,9 @@ func TestClient_WithAutoReconnect_ValidParams_NoPanic(t *testing.T) {
 	}
 }
 
-func TestDefaultClientConfig_Defaults(t *testing.T) {
-	// Verify that default config values match the contract.
-	// We rely on the fact that Dial with no options uses defaultClientConfig.
-	// We test option overrides indirectly — here we verify the option functions
-	// themselves return non-nil and don't panic with valid params.
+func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
+	// Verify that callback-related option builders accept valid callbacks
+	// without panicking and always return non-nil ClientOption values.
 	opts := []client.ClientOption{
 		client.WithOnMessage(func(f wspulse.Frame) {}),
 		client.WithOnReconnect(func(attempt int) {}),
