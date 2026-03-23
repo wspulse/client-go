@@ -674,13 +674,13 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	t.Cleanup(srv.Close)
 	url := "ws" + strings.TrimPrefix(ts.URL, "http")
 
-	reconnected := make(chan int, 5)
+	restored := make(chan struct{}, 5)
 	received := make(chan wspulse.Frame, 5)
 	c, err := client.Dial(url,
 		client.WithAutoReconnect(3, 50*time.Millisecond, 200*time.Millisecond),
-		client.WithOnReconnect(func(attempt int) {
+		client.WithOnTransportRestore(func() {
 			select {
-			case reconnected <- attempt:
+			case restored <- struct{}{}:
 			default:
 			}
 		}),
@@ -715,15 +715,12 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 		t.Fatalf("Kick failed: %v", err)
 	}
 
-	// Wait for onReconnect (fires before dialOnce).
+	// Wait for onTransportRestore (fires after pumps are running).
 	select {
-	case <-reconnected:
+	case <-restored:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onReconnect")
+		t.Fatal("timed out waiting for onTransportRestore")
 	}
-
-	// Wait for new pumps to start.
-	time.Sleep(500 * time.Millisecond)
 
 	// Verify post-reconnect message delivery.
 	if err := c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}); err != nil {
@@ -992,6 +989,160 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	case <-closeDone:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Close() hung during backoff — timer not stopped")
+	}
+}
+
+func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
+	var clientIDCounter atomic.Int64
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			id := clientIDCounter.Add(1)
+			return "room", fmt.Sprintf("tr-%d", id), nil
+		},
+		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
+			_ = connection.Send(f)
+		}),
+	)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	transportDropped := make(chan struct{}, 5)
+	transportRestored := make(chan struct{}, 5)
+	received := make(chan wspulse.Frame, 5)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(3, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnTransportDrop(func(err error) {
+			select {
+			case transportDropped <- struct{}{}:
+			default:
+			}
+		}),
+		client.WithOnTransportRestore(func() {
+			select {
+			case transportRestored <- struct{}{}:
+			default:
+			}
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case received <- f:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Drop the connection.
+	firstID := fmt.Sprintf("tr-%d", clientIDCounter.Load())
+	kickDeadline := time.Now().Add(2 * time.Second)
+	for {
+		if err := srv.Kick(firstID); err != nil {
+			if time.Now().After(kickDeadline) {
+				t.Fatalf("server did not register %s within 2s", firstID)
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		break
+	}
+
+	// Verify onTransportDrop fires.
+	select {
+	case <-transportDropped:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for onTransportDrop")
+	}
+
+	// Verify onTransportRestore fires after reconnect.
+	select {
+	case <-transportRestored:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onTransportRestore")
+	}
+
+	// Verify message delivery works after restore.
+	if err := c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}); err != nil {
+		t.Fatalf("Send after restore: %v", err)
+	}
+	select {
+	case f := <-received:
+		if f.Event != "post-restore" {
+			t.Fatalf("want event %q, got %q", "post-restore", f.Event)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for echo after restore")
+	}
+}
+
+func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
+	url := startEchoServer(t)
+
+	var restoreCount atomic.Int32
+	c, err := client.Dial(url,
+		client.WithOnTransportRestore(func() {
+			restoreCount.Add(1)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+
+	// Give enough time for any erroneous callback to fire.
+	time.Sleep(300 * time.Millisecond)
+
+	_ = c.Close()
+
+	if count := restoreCount.Load(); count != 0 {
+		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
+	}
+}
+
+func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
+	srv := wspulse.NewServer(
+		func(r *http.Request) (string, string, error) {
+			return "room", "c1", nil
+		},
+	)
+	ts := httptest.NewServer(srv)
+	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	var restoreCount atomic.Int32
+	disconnectErr := make(chan error, 1)
+	c, err := client.Dial(url,
+		client.WithAutoReconnect(2, 50*time.Millisecond, 200*time.Millisecond),
+		client.WithOnTransportRestore(func() {
+			restoreCount.Add(1)
+		}),
+		client.WithOnDisconnect(func(err error) {
+			disconnectErr <- err
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Shut down the server so all reconnect dials fail.
+	srv.Close()
+	ts.Close()
+
+	// Wait for onDisconnect with ErrRetriesExhausted.
+	select {
+	case got := <-disconnectErr:
+		if !errors.Is(got, client.ErrRetriesExhausted) {
+			t.Errorf("want ErrRetriesExhausted, got %v", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for onDisconnect")
+	}
+
+	if count := restoreCount.Load(); count != 0 {
+		t.Errorf("onTransportRestore fired %d times, want 0", count)
 	}
 }
 

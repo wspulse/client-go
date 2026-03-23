@@ -171,9 +171,9 @@ func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
 	// without panicking and always return non-nil ClientOption values.
 	opts := []client.ClientOption{
 		client.WithOnMessage(func(f wspulse.Frame) {}),
-		client.WithOnReconnect(func(attempt int) {}),
 		client.WithOnDisconnect(func(err error) {}),
 		client.WithOnTransportDrop(func(err error) {}),
+		client.WithOnTransportRestore(func() {}),
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -190,8 +190,8 @@ func TestClient_WithOnMessage_Nil_NoPanic(t *testing.T) {
 	}
 }
 
-func TestClient_WithOnReconnect_Nil_NoPanic(t *testing.T) {
-	opt := client.WithOnReconnect(nil)
+func TestClient_WithOnTransportRestore_Nil_NoPanic(t *testing.T) {
+	opt := client.WithOnTransportRestore(nil)
 	if opt == nil {
 		t.Error("expected non-nil option")
 	}
