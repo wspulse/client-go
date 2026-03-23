@@ -13,6 +13,7 @@ import (
 )
 
 func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
+	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
 	if err == nil {
 		t.Error("expected error dialing unreachable server, got nil")
@@ -20,6 +21,7 @@ func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 }
 
 func TestDial_ErrorFormat(t *testing.T) {
+	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
 	if err == nil {
 		t.Fatal("expected error dialing unreachable server, got nil")
@@ -34,6 +36,7 @@ func TestDial_ErrorFormat(t *testing.T) {
 }
 
 func TestClient_WithCodec_Nil_Panics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -47,6 +50,7 @@ func TestClient_WithCodec_Nil_Panics(t *testing.T) {
 }
 
 func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name               string
 		ping, pong, writeW time.Duration
@@ -78,6 +82,7 @@ func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
 }
 
 func TestClient_WithMaxMessageSize_InvalidParam_Panics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		n       int64
@@ -103,6 +108,7 @@ func TestClient_WithMaxMessageSize_InvalidParam_Panics(t *testing.T) {
 }
 
 func TestClient_WithLogger_Nil_Panics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -116,6 +122,7 @@ func TestClient_WithLogger_Nil_Panics(t *testing.T) {
 }
 
 func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name       string
 		maxRetries int
@@ -147,6 +154,7 @@ func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
 }
 
 func TestClient_WithAutoReconnect_ValidParams_NoPanic(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name       string
 		maxRetries int
@@ -167,6 +175,7 @@ func TestClient_WithAutoReconnect_ValidParams_NoPanic(t *testing.T) {
 }
 
 func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
+	t.Parallel()
 	// Verify that callback-related option builders accept valid callbacks
 	// without panicking and always return non-nil ClientOption values.
 	opts := []client.ClientOption{
@@ -183,6 +192,7 @@ func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithOnMessage_Nil_NoPanic(t *testing.T) {
+	t.Parallel()
 	// Nil callbacks should not panic at option construction time.
 	opt := client.WithOnMessage(nil)
 	if opt == nil {
@@ -191,6 +201,7 @@ func TestClient_WithOnMessage_Nil_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithOnTransportRestore_Nil_NoPanic(t *testing.T) {
+	t.Parallel()
 	opt := client.WithOnTransportRestore(nil)
 	if opt == nil {
 		t.Error("expected non-nil option")
@@ -198,6 +209,7 @@ func TestClient_WithOnTransportRestore_Nil_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithOnDisconnect_Nil_NoPanic(t *testing.T) {
+	t.Parallel()
 	opt := client.WithOnDisconnect(nil)
 	if opt == nil {
 		t.Error("expected non-nil option")
@@ -205,6 +217,7 @@ func TestClient_WithOnDisconnect_Nil_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithOnTransportDrop_Nil_NoPanic(t *testing.T) {
+	t.Parallel()
 	opt := client.WithOnTransportDrop(nil)
 	if opt == nil {
 		t.Error("expected non-nil option")
@@ -212,6 +225,7 @@ func TestClient_WithOnTransportDrop_Nil_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithDialHeaders_Nil_NoPanic(t *testing.T) {
+	t.Parallel()
 	opt := client.WithDialHeaders(nil)
 	if opt == nil {
 		t.Error("expected non-nil option")
@@ -219,6 +233,7 @@ func TestClient_WithDialHeaders_Nil_NoPanic(t *testing.T) {
 }
 
 func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		n    int64
@@ -239,6 +254,7 @@ func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
 }
 
 func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name               string
 		ping, pong, writeW time.Duration

@@ -39,6 +39,7 @@ func startEchoServer(t *testing.T) string {
 }
 
 func TestDial_SendAndReceive(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	received := make(chan wspulse.Frame, 1)
 	c, err := client.Dial(url, client.WithOnMessage(func(f wspulse.Frame) {
@@ -63,6 +64,7 @@ func TestDial_SendAndReceive(t *testing.T) {
 }
 
 func TestClient_Close_SafeToCallTwice(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url)
 	if err != nil {
@@ -73,6 +75,7 @@ func TestClient_Close_SafeToCallTwice(t *testing.T) {
 }
 
 func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url)
 	if err != nil {
@@ -86,6 +89,7 @@ func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 }
 
 func TestClient_Done_ClosedAfterClose(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url)
 	if err != nil {
@@ -100,6 +104,7 @@ func TestClient_Done_ClosedAfterClose(t *testing.T) {
 }
 
 func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url)
 	if err != nil {
@@ -123,6 +128,7 @@ func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 }
 
 func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	disconnected := make(chan error, 1)
 	c, err := client.Dial(url,
@@ -144,6 +150,7 @@ func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 }
 
 func TestClient_ReadPump_PanicRecovery(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "echo-1", nil
@@ -179,6 +186,7 @@ func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 }
 
 func TestClient_Done_FiresOnServerDrop(t *testing.T) {
+	t.Parallel()
 	connected := make(chan wspulse.Connection, 1)
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -218,6 +226,7 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 }
 
 func TestClient_WithDialHeaders(t *testing.T) {
+	t.Parallel()
 	headerReceived := make(chan string, 1)
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -250,6 +259,7 @@ func TestClient_WithDialHeaders(t *testing.T) {
 }
 
 func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 
 	var mu sync.Mutex
@@ -282,6 +292,7 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 }
 
 func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -320,6 +331,7 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 }
 
 func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -356,6 +368,7 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 }
 
 func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
+	t.Parallel()
 	var serverConnection wspulse.Connection
 	connected := make(chan struct{}, 1)
 
@@ -408,6 +421,7 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 }
 
 func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	logger, _ := zap.NewDevelopment()
 	c, err := client.Dial(url, client.WithLogger(logger))
@@ -418,6 +432,7 @@ func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
 }
 
 func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url,
 		client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second),
@@ -429,6 +444,7 @@ func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
 }
 
 func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -462,6 +478,7 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 }
 
 func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
+	t.Parallel()
 	received := make(chan wspulse.Frame, 5)
 
 	srv := wspulse.NewServer(
@@ -501,6 +518,7 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 }
 
 func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	var callbackDone atomic.Bool
 	c, err := client.Dial(url,
@@ -519,6 +537,7 @@ func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
 }
 
 func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	var callbackDone atomic.Bool
 	c, err := client.Dial(url,
@@ -537,6 +556,7 @@ func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
 }
 
 func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	var callbackDone atomic.Bool
 	c, err := client.Dial(url,
@@ -576,6 +596,7 @@ func startMultiClientEchoServer(t *testing.T) string {
 }
 
 func TestClient_Close_WaitsForGoroutines(t *testing.T) {
+	t.Parallel()
 	url := startMultiClientEchoServer(t)
 
 	const count = 50
@@ -604,6 +625,7 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 }
 
 func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
+	t.Parallel()
 	url := startMultiClientEchoServer(t)
 
 	const count = 50
@@ -645,6 +667,7 @@ func (failEncodeCodec) Decode(data []byte) (wspulse.Frame, error) {
 func (failEncodeCodec) FrameType() int { return 1 }
 
 func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	c, err := client.Dial(url, client.WithCodec(failEncodeCodec{}))
 	if err != nil {
@@ -659,6 +682,7 @@ func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
 }
 
 func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
+	t.Parallel()
 	var clientIDCounter atomic.Int64
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -737,6 +761,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 }
 
 func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 	disconnectErr := make(chan error, 1)
 	c, err := client.Dial(url,
@@ -761,6 +786,7 @@ func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
 }
 
 func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
+	t.Parallel()
 	connected := make(chan wspulse.Connection, 1)
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -804,6 +830,7 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 }
 
 func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
+	t.Parallel()
 	connected := make(chan struct{}, 1)
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -850,6 +877,7 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 }
 
 func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -884,6 +912,7 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 }
 
 func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -927,6 +956,7 @@ func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 }
 
 func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -993,6 +1023,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 }
 
 func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
+	t.Parallel()
 	var clientIDCounter atomic.Int64
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -1080,6 +1111,7 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 }
 
 func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
+	t.Parallel()
 	url := startEchoServer(t)
 
 	var restoreCount atomic.Int32
@@ -1103,6 +1135,7 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 }
 
 func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
+	t.Parallel()
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil
@@ -1179,6 +1212,7 @@ func startNoPongServer(t *testing.T) string {
 }
 
 func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
+	t.Parallel()
 	url := startNoPongServer(t)
 
 	disconnected := make(chan error, 1)
@@ -1217,6 +1251,7 @@ func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 }
 
 func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
+	t.Parallel()
 	connected := make(chan struct{}, 1)
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
