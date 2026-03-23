@@ -79,7 +79,7 @@ func WithOnTransportDrop(fn func(err error)) ClientOption {
 }
 
 // WithOnTransportRestore registers a callback invoked after a successful
-// reconnect when the new transport is ready and both pumps are running.
+// reconnect when the new transport is ready and the internal pumps have been started.
 // Does not fire on the initial connection.
 func WithOnTransportRestore(fn func()) ClientOption {
 	return func(c *clientConfig) { c.onTransportRestore = fn }

@@ -1109,6 +1109,8 @@ func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 		},
 	)
 	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Close)
 	url := "ws" + strings.TrimPrefix(ts.URL, "http")
 
 	var restoreCount atomic.Int32
