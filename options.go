@@ -39,6 +39,7 @@ type clientConfig struct {
 	pingPeriod         time.Duration
 	writeWait          time.Duration
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
+	clock              clock
 }
 
 func defaultClientConfig() *clientConfig {
@@ -53,6 +54,7 @@ func defaultClientConfig() *clientConfig {
 		pingPeriod:     20 * time.Second,
 		writeWait:      10 * time.Second,
 		maxMessageSize: 1 << 20, // 1 MiB
+		clock:          realClock{},
 	}
 }
 

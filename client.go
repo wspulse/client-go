@@ -243,7 +243,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
 
-	ticker := time.NewTicker(pingPeriod)
+	ticker := c.config.clock.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = wsConnection.Close()
@@ -326,7 +326,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.Duration("delay", delay),
 		)
-		backoffTimer := time.NewTimer(delay)
+		backoffTimer := c.config.clock.NewTimer(delay)
 		select {
 		case <-c.quit:
 			backoffTimer.Stop()
