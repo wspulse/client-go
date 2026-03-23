@@ -715,7 +715,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 		t.Fatalf("Kick failed: %v", err)
 	}
 
-	// Wait for onTransportRestore (fires after pumps are running).
+	// Wait for onTransportRestore (fires after pumps have been started).
 	select {
 	case <-restored:
 	case <-time.After(5 * time.Second):
@@ -992,7 +992,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	}
 }
 
-func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
+func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	var clientIDCounter atomic.Int64
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
@@ -1079,7 +1079,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	}
 }
 
-func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
+func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	url := startEchoServer(t)
 
 	var restoreCount atomic.Int32
@@ -1102,7 +1102,7 @@ func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	}
 }
 
-func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
+func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	srv := wspulse.NewServer(
 		func(r *http.Request) (string, string, error) {
 			return "room", "c1", nil

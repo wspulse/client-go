@@ -134,7 +134,7 @@ See [wspulse/core](https://github.com/wspulse/core) for the full `router` API.
 | Option                                   | Default         |
 | ---------------------------------------- | --------------- |
 | `WithOnMessage(fn)`                      | —               |
-| `WithOnReconnect(fn)`                    | —               |
+| `WithOnTransportRestore(fn)`             | —               |
 | `WithOnDisconnect(fn)`                   | —               |
 | `WithOnTransportDrop(fn)`                | —               |
 | `WithAutoReconnect(max, base, maxDelay)` | disabled              |
