@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `WithOnTransportRestore` callback option, fired after a successful reconnect
+
+### Removed
+
+- `WithOnReconnect` callback option (replaced by `WithOnTransportRestore`)
+
 ---
 
 ## [0.3.0] - 2026-03-22
@@ -71,7 +79,7 @@
 - `Client.Close() error` — waits for all internal goroutines to exit
 - `Client.Done() <-chan struct{}`
 - Automatic reconnect with exponential backoff
-- `WithOnMessage(fn func(wspulse.Frame))`, `WithOnTransportRestore(fn func())`
+- `WithOnMessage(fn func(wspulse.Frame))`, `WithOnReconnect(fn func())`
 - `WithOnDisconnect(fn func(err error))`, `WithOnTransportDrop(fn func(err error))`
 - `WithAutoReconnect(maxRetries int, baseDelay, maxDelay time.Duration)`
 - `WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration)`, `WithMaxMessageSize`
