@@ -22,6 +22,68 @@ import (
 	"github.com/wspulse/client-go"
 )
 
+// ── Fake clock ───────────────────────────────────────────────────────────────
+//
+// fakeClock replaces both NewTimer (backoff) and NewTicker (heartbeat) with
+// controllable fakes. No real timers fire — tests drive time explicitly.
+
+type fakeClock struct {
+	mu      sync.Mutex
+	timers  []*fakeTimerEntry
+	tickers []*fakeTickerEntry
+}
+
+type fakeTimerEntry struct {
+	d     time.Duration
+	timer *time.Timer
+}
+
+type fakeTickerEntry struct {
+	d      time.Duration
+	ticker *time.Ticker
+}
+
+func newFakeClock() *fakeClock { return &fakeClock{} }
+
+// NewTimer returns a stopped timer that will not fire on its own.
+// Tests can call ft.Reset(0) to fire it immediately if needed.
+func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
+	t := time.NewTimer(time.Hour)
+	t.Stop()
+	fc.mu.Lock()
+	fc.timers = append(fc.timers, &fakeTimerEntry{d: d, timer: t})
+	fc.mu.Unlock()
+	return t
+}
+
+// NewTicker returns a stopped ticker that will never fire on its own.
+// This prevents heartbeat pings from interfering with tests that use
+// fakeClock.
+func (fc *fakeClock) NewTicker(d time.Duration) *time.Ticker {
+	t := time.NewTicker(time.Hour)
+	t.Stop()
+	fc.mu.Lock()
+	fc.tickers = append(fc.tickers, &fakeTickerEntry{d: d, ticker: t})
+	fc.mu.Unlock()
+	return t
+}
+
+// TimerCount returns the number of registered timers.
+func (fc *fakeClock) TimerCount() int {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	return len(fc.timers)
+}
+
+// TickerCount returns the number of registered tickers.
+func (fc *fakeClock) TickerCount() int {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	return len(fc.tickers)
+}
+
+// ── Test helpers ─────────────────────────────────────────────────────────────
+
 func startEchoServer(t *testing.T) string {
 	t.Helper()
 	srv := wspulse.NewServer(
