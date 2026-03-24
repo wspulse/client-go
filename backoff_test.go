@@ -6,6 +6,7 @@ import (
 )
 
 func TestBackoff_DoublesEachAttempt(t *testing.T) {
+	t.Parallel()
 	base := 100 * time.Millisecond
 	max := 10 * time.Second
 	for i := 0; i < 5; i++ {
@@ -19,6 +20,7 @@ func TestBackoff_DoublesEachAttempt(t *testing.T) {
 }
 
 func TestBackoff_CappedAtMax(t *testing.T) {
+	t.Parallel()
 	base := 1 * time.Second
 	max := 5 * time.Second
 	half := max / 2
@@ -43,6 +45,7 @@ func TestBackoff_AttemptAbove62_CapsAtMaxShift(t *testing.T) {
 }
 
 func TestBackoff_OverflowToNegative_CapsAtMax(t *testing.T) {
+	t.Parallel()
 	base := 1 * time.Second
 	max := 30 * time.Second
 	half := max / 2
@@ -53,6 +56,7 @@ func TestBackoff_OverflowToNegative_CapsAtMax(t *testing.T) {
 }
 
 func TestBackoff_ZeroAttempt_ReturnsBase(t *testing.T) {
+	t.Parallel()
 	base := 500 * time.Millisecond
 	max := 30 * time.Second
 	half := base / 2
@@ -63,6 +67,7 @@ func TestBackoff_ZeroAttempt_ReturnsBase(t *testing.T) {
 }
 
 func TestBackoff_HasJitter(t *testing.T) {
+	t.Parallel()
 	base := 1 * time.Second
 	max := 30 * time.Second
 	attempt := 3 // deterministic delay = 8s
@@ -78,6 +83,7 @@ func TestBackoff_HasJitter(t *testing.T) {
 }
 
 func TestBackoff_JitterWithinRange(t *testing.T) {
+	t.Parallel()
 	base := 1 * time.Second
 	max := 30 * time.Second
 	attempt := 3

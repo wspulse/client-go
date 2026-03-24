@@ -150,7 +150,7 @@ func (c *internalClient) Send(f wspulse.Frame) error {
 // Safe to call multiple times.
 //
 // Do not call Close synchronously from within any callback (OnMessage,
-// OnDisconnect, OnTransportDrop, OnReconnect); the callback runs inside
+// OnDisconnect, OnTransportDrop, OnTransportRestore); the callback runs inside
 // a tracked goroutine, and waiting for it to exit would deadlock.
 // Use go c.Close() instead if closing from a callback is required.
 func (c *internalClient) Close() error {
@@ -243,7 +243,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
 
-	ticker := time.NewTicker(pingPeriod)
+	ticker := c.config.clock.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = wsConnection.Close()
@@ -326,16 +326,12 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.Duration("delay", delay),
 		)
-		backoffTimer := time.NewTimer(delay)
+		backoffTimer := c.config.clock.NewTimer(delay)
 		select {
 		case <-c.quit:
 			backoffTimer.Stop()
 			return
 		case <-backoffTimer.C:
-		}
-
-		if fn := c.config.onReconnect; fn != nil {
-			fn(attempt)
 		}
 
 		c.logger.Debug("wspulse/client: reconnect attempt",
@@ -384,6 +380,9 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.String("url", c.url),
 		)
 		attempt = 0
+		if fn := c.config.onTransportRestore; fn != nil {
+			fn()
+		}
 	}
 }
 

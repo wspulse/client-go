@@ -24,21 +24,22 @@ const (
 type ClientOption func(*clientConfig) //nolint:revive
 
 type clientConfig struct {
-	onMessage       func(wspulse.Frame)
-	onReconnect     func(attempt int)
-	onDisconnect    func(err error)
-	onTransportDrop func(err error)
-	codec           wspulse.Codec
-	dialHeaders     http.Header
-	logger          *zap.Logger
-	autoReconnect   bool
-	maxRetries      int // 0 means retry indefinitely
-	baseDelay       time.Duration
-	maxDelay        time.Duration
-	pongWait        time.Duration
-	pingPeriod      time.Duration
-	writeWait       time.Duration
-	maxMessageSize  int64 // max inbound message size in bytes; 0 = no size enforcement
+	onMessage          func(wspulse.Frame)
+	onDisconnect       func(err error)
+	onTransportDrop    func(err error)
+	onTransportRestore func()
+	codec              wspulse.Codec
+	dialHeaders        http.Header
+	logger             *zap.Logger
+	autoReconnect      bool
+	maxRetries         int // 0 means retry indefinitely
+	baseDelay          time.Duration
+	maxDelay           time.Duration
+	pongWait           time.Duration
+	pingPeriod         time.Duration
+	writeWait          time.Duration
+	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
+	clock              clock
 }
 
 func defaultClientConfig() *clientConfig {
@@ -53,18 +54,13 @@ func defaultClientConfig() *clientConfig {
 		pingPeriod:     20 * time.Second,
 		writeWait:      10 * time.Second,
 		maxMessageSize: 1 << 20, // 1 MiB
+		clock:          realClock{},
 	}
 }
 
 // WithOnMessage registers a callback invoked for every inbound Frame.
 func WithOnMessage(fn func(wspulse.Frame)) ClientOption {
 	return func(c *clientConfig) { c.onMessage = fn }
-}
-
-// WithOnReconnect registers a callback invoked at each reconnection attempt.
-// attempt is zero-based.
-func WithOnReconnect(fn func(attempt int)) ClientOption {
-	return func(c *clientConfig) { c.onReconnect = fn }
 }
 
 // WithOnDisconnect registers a callback invoked when the client permanently
@@ -82,6 +78,13 @@ func WithOnDisconnect(fn func(err error)) ClientOption {
 // transport failure including those followed by automatic reconnection.
 func WithOnTransportDrop(fn func(err error)) ClientOption {
 	return func(c *clientConfig) { c.onTransportDrop = fn }
+}
+
+// WithOnTransportRestore registers a callback invoked after a successful
+// reconnect when the new transport is ready and the internal pumps have been started.
+// Does not fire on the initial connection.
+func WithOnTransportRestore(fn func()) ClientOption {
+	return func(c *clientConfig) { c.onTransportRestore = fn }
 }
 
 // WithCodec replaces the default JSONCodec.
