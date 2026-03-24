@@ -188,6 +188,6 @@ make clean      # remove build artifacts and test cache
 
 ---
 
-## Related Modules             |
-| --------------------------------------------------- | ---------------- |
-| [wspulse/server](https://github.com/wspulse/server) | WebSocket server |
+## Related Modules            
+
+- [wspulse/server](https://github.com/wspulse/server) — WebSocket server library
