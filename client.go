@@ -190,8 +190,8 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			readErr = fmt.Errorf("wspulse: readPump panic: %v", r)
-			c.logger.Error("wspulse: readPump panic recovered",
+			readErr = fmt.Errorf("wspulse/client: readPump panic: %v", r)
+			c.logger.Error("wspulse/client: readPump panic recovered",
 				zap.Any("panic", r),
 			)
 		}
