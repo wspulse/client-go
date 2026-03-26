@@ -4,7 +4,6 @@ package client_test
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -17,9 +16,8 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
-	wspulse "github.com/wspulse/server"
-
 	"github.com/wspulse/client-go"
+	wspulse "github.com/wspulse/core"
 )
 
 // ── Fake clock ───────────────────────────────────────────────────────────────
@@ -82,29 +80,70 @@ func (fc *fakeClock) TickerCount() int {
 	return len(fc.tickers)
 }
 
-// ── Test helpers ─────────────────────────────────────────────────────────────
+// ── Raw WebSocket helpers ────────────────────────────────────────────────────
 
-func startEchoServer(t *testing.T) string {
+// startClosableEchoServer creates a local httptest echo server with tracked
+// WebSocket connections. The returned closeFunc closes all active WS
+// connections then shuts down the HTTP server. This is used for tests that
+// need to make the server unreachable (server-drop, max-retries scenarios)
+// without affecting the shared testserver.
+func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 	t.Helper()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "client-1", nil
-		},
-		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
-			_ = connection.Send(f)
-		}),
-	)
-	ts := httptest.NewServer(srv)
+	var mu sync.Mutex
+	var conns []*websocket.Conn
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		conns = append(conns, wsConn)
+		mu.Unlock()
+		for {
+			mt, msg, readErr := wsConn.ReadMessage()
+			if readErr != nil {
+				return
+			}
+			if writeErr := wsConn.WriteMessage(mt, msg); writeErr != nil {
+				return
+			}
+		}
+	})
+	ts := httptest.NewServer(handler)
+	url = "ws" + strings.TrimPrefix(ts.URL, "http")
+	var closeOnce sync.Once
+	closeFunc = func() {
+		closeOnce.Do(func() {
+			mu.Lock()
+			for _, c := range conns {
+				_ = c.Close()
+			}
+			conns = nil
+			mu.Unlock()
+			ts.Close()
+		})
+	}
+	t.Cleanup(closeFunc)
+	return url, closeFunc
+}
+
+// startRawServer creates a local httptest server with the given WS handler.
+// Returns the WS URL. Cleanup is registered via t.Cleanup automatically.
+func startRawServer(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
 	return "ws" + strings.TrimPrefix(ts.URL, "http")
 }
 
+// ── Integration tests ────────────────────────────────────────────────────────
+
 func TestDial_SendAndReceive(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	received := make(chan wspulse.Frame, 1)
-	c, err := client.Dial(url, client.WithOnMessage(func(f wspulse.Frame) {
+	c, err := client.Dial(wsURL("id=send-recv"), client.WithOnMessage(func(f wspulse.Frame) {
 		received <- f
 	}))
 	if err != nil {
@@ -127,8 +166,7 @@ func TestDial_SendAndReceive(t *testing.T) {
 
 func TestClient_Close_SafeToCallTwice(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url)
+	c, err := client.Dial(wsURL("id=close-twice"))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -138,8 +176,7 @@ func TestClient_Close_SafeToCallTwice(t *testing.T) {
 
 func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url)
+	c, err := client.Dial(wsURL("id=send-after-close"))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -152,8 +189,7 @@ func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 
 func TestClient_Done_ClosedAfterClose(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url)
+	c, err := client.Dial(wsURL("id=done-after-close"))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -167,8 +203,7 @@ func TestClient_Done_ClosedAfterClose(t *testing.T) {
 
 func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url)
+	c, err := client.Dial(wsURL("id=concurrent-send"))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -191,9 +226,8 @@ func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 
 func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	disconnected := make(chan error, 1)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=ondisconnect-fires"),
 		client.WithOnDisconnect(func(err error) {
 			disconnected <- err
 		}),
@@ -213,18 +247,26 @@ func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 
 func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "echo-1", nil
-		},
-		wspulse.WithOnConnect(func(connection wspulse.Connection) {
-			_ = connection.Send(wspulse.Frame{Event: "trigger"})
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	// Need a server that sends a frame immediately on connect to trigger
+	// the panic in OnMessage. Use a raw httptest server.
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		// Send a trigger frame immediately.
+		trigger := `{"event":"trigger","payload":null}`
+		_ = wsConn.WriteMessage(websocket.TextMessage, []byte(trigger))
+		// Keep reading to hold the connection open.
+		for {
+			if _, _, err := wsConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	url := startRawServer(t, handler)
 
 	disconnected := make(chan error, 1)
 	c, err := client.Dial(url,
@@ -249,32 +291,28 @@ func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 
 func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 	t.Parallel()
-	connected := make(chan wspulse.Connection, 1)
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-		wspulse.WithOnConnect(func(connection wspulse.Connection) {
-			connected <- connection
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
-	c, err := client.Dial(url)
+	received := make(chan wspulse.Frame, 1)
+	c, err := client.Dial(url, client.WithOnMessage(func(f wspulse.Frame) {
+		received <- f
+	}))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
 	select {
-	case <-connected:
+	case <-received:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for connection")
+		t.Fatal("timed out waiting for echo")
 	}
 
-	srv.Close()
+	closeServer()
 
 	select {
 	case <-c.Done():
@@ -289,17 +327,23 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 
 func TestClient_WithDialHeaders(t *testing.T) {
 	t.Parallel()
+	// Need a server that inspects headers. Use a raw httptest server.
 	headerReceived := make(chan string, 1)
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			headerReceived <- r.Header.Get("X-Custom-Token")
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerReceived <- r.Header.Get("X-Custom-Token")
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		for {
+			if _, _, err := wsConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	url := startRawServer(t, handler)
 
 	headers := http.Header{}
 	headers.Set("X-Custom-Token", "test-token-123")
@@ -322,23 +366,36 @@ func TestClient_WithDialHeaders(t *testing.T) {
 
 func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-
 	var mu sync.Mutex
 	disconnectCount := 0
 
-	c, err := client.Dial(url,
+	echoReceived := make(chan struct{}, 1)
+	c, err := client.Dial(wsURL("id=ondisconnect-once"),
 		client.WithOnDisconnect(func(err error) {
 			mu.Lock()
 			disconnectCount++
 			mu.Unlock()
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case echoReceived <- struct{}{}:
+			default:
+			}
 		}),
 	)
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	select {
+	case <-echoReceived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for echo")
+	}
 
 	_ = c.Close()
 
@@ -355,19 +412,8 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 
 func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-		wspulse.WithResumeWindow(5),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	transportDropped := make(chan struct{}, 5)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=transport-drop"),
 		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnTransportDrop(func(err error) {
 			select {
@@ -381,9 +427,7 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	time.Sleep(200 * time.Millisecond)
-
-	_ = srv.Kick("c1")
+	kickConnection(t, "transport-drop")
 
 	select {
 	case <-transportDropped:
@@ -394,22 +438,19 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 
 func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	disconnected := make(chan struct{}, 1)
-	c, err := client.Dial(url,
+	echoReceived := make(chan struct{}, 1)
+	c, err := client.Dial(wsURL("id=autoreconnect-close"),
 		client.WithAutoReconnect(5, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnDisconnect(func(err error) {
 			select {
 			case disconnected <- struct{}{}:
+			default:
+			}
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case echoReceived <- struct{}{}:
 			default:
 			}
 		}),
@@ -418,7 +459,15 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	select {
+	case <-echoReceived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for echo")
+	}
 
 	_ = c.Close()
 
@@ -431,25 +480,32 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 
 func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 	t.Parallel()
-	var serverConnection wspulse.Connection
+	// Need a server that sends an oversized message. Use a raw httptest server.
 	connected := make(chan struct{}, 1)
-
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-		wspulse.WithOnConnect(func(connection wspulse.Connection) {
-			serverConnection = connection
-			select {
-			case connected <- struct{}{}:
-			default:
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		select {
+		case connected <- struct{}{}:
+		default:
+		}
+		// Wait a moment then send an oversized frame.
+		time.Sleep(100 * time.Millisecond)
+		bigPayload := `"` + strings.Repeat("x", 100) + `"`
+		frame := `{"event":"big","payload":` + bigPayload + `}`
+		_ = wsConn.WriteMessage(websocket.TextMessage, []byte(frame))
+		// Keep reading.
+		for {
+			if _, _, err := wsConn.ReadMessage(); err != nil {
+				return
 			}
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+		}
+	})
+	url := startRawServer(t, handler)
 
 	dropped := make(chan error, 1)
 	c, err := client.Dial(url,
@@ -472,9 +528,6 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 		t.Fatal("timed out waiting for connect")
 	}
 
-	bigPayload := []byte(`"` + strings.Repeat("x", 100) + `"`)
-	_ = serverConnection.Send(wspulse.Frame{Event: "big", Payload: bigPayload})
-
 	select {
 	case <-dropped:
 	case <-time.After(3 * time.Second):
@@ -484,9 +537,8 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 
 func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	logger, _ := zap.NewDevelopment()
-	c, err := client.Dial(url, client.WithLogger(logger))
+	c, err := client.Dial(wsURL("id=logger-test"), client.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -495,8 +547,7 @@ func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
 
 func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=heartbeat-test"),
 		client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second),
 	)
 	if err != nil {
@@ -507,15 +558,19 @@ func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
 
 func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	// Use a raw server that does not read messages, so the client's write
+	// buffer fills up.
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		// Hold connection open but do not read (to cause backpressure).
+		<-r.Context().Done()
+	})
+	url := startRawServer(t, handler)
 
 	c, err := client.Dial(url)
 	if err != nil {
@@ -541,17 +596,29 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 
 func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Parallel()
+	// Need a server that sends a raw invalid JSON frame then a valid one.
+	// Use a raw httptest server.
 	received := make(chan wspulse.Frame, 5)
-
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		// Send an invalid JSON frame (decode failure — should be dropped).
+		_ = wsConn.WriteMessage(websocket.TextMessage, []byte("not valid json{{{"))
+		// Send a valid frame that should be delivered.
+		validFrame := `{"event":"valid-frame","payload":"ok"}`
+		_ = wsConn.WriteMessage(websocket.TextMessage, []byte(validFrame))
+		// Keep reading.
+		for {
+			if _, _, err := wsConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	url := startRawServer(t, handler)
 
 	c, err := client.Dial(url,
 		client.WithOnMessage(func(f wspulse.Frame) {
@@ -562,12 +629,6 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-
-	time.Sleep(100 * time.Millisecond)
-	frame := wspulse.Frame{Event: "valid-frame", Payload: []byte(`"ok"`)}
-	if err := srv.Send("c1", frame); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
 
 	select {
 	case f := <-received:
@@ -581,9 +642,8 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 
 func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	var callbackDone atomic.Bool
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=close-waits-disconnect"),
 		client.WithOnDisconnect(func(err error) {
 			time.Sleep(200 * time.Millisecond)
 			callbackDone.Store(true)
@@ -600,9 +660,8 @@ func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
 
 func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	var callbackDone atomic.Bool
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=close-waits-drop"),
 		client.WithOnTransportDrop(func(err error) {
 			time.Sleep(200 * time.Millisecond)
 			callbackDone.Store(true)
@@ -619,9 +678,8 @@ func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
 
 func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	var callbackDone atomic.Bool
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=close-waits-ar"),
 		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnDisconnect(func(err error) {
 			time.Sleep(200 * time.Millisecond)
@@ -637,34 +695,12 @@ func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 	}
 }
 
-// startMultiClientEchoServer creates a server that assigns each connection a
-// unique client ID so multiple concurrent clients coexist without kicking.
-func startMultiClientEchoServer(t *testing.T) string {
-	t.Helper()
-	var clientIDCounter atomic.Int64
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			id := clientIDCounter.Add(1)
-			return "room", fmt.Sprintf("c-%d", id), nil
-		},
-		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
-			_ = connection.Send(f)
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	return "ws" + strings.TrimPrefix(ts.URL, "http")
-}
-
 func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 	t.Parallel()
-	url := startMultiClientEchoServer(t)
-
 	const count = 50
 	clients := make([]client.Client, count)
 	for i := range clients {
-		c, err := client.Dial(url)
+		c, err := client.Dial(wsURL(""))
 		if err != nil {
 			t.Fatalf("Dial #%d failed: %v", i, err)
 		}
@@ -688,12 +724,10 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 
 func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 	t.Parallel()
-	url := startMultiClientEchoServer(t)
-
 	const count = 50
 	clients := make([]client.Client, count)
 	for i := range clients {
-		c, err := client.Dial(url,
+		c, err := client.Dial(wsURL(""),
 			client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		)
 		if err != nil {
@@ -730,8 +764,7 @@ func (failEncodeCodec) FrameType() int { return 1 }
 
 func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-	c, err := client.Dial(url, client.WithCodec(failEncodeCodec{}))
+	c, err := client.Dial(wsURL("id=encode-error"), client.WithCodec(failEncodeCodec{}))
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
@@ -745,24 +778,9 @@ func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
 
 func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	t.Parallel()
-	var clientIDCounter atomic.Int64
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			id := clientIDCounter.Add(1)
-			return "room", fmt.Sprintf("rc-%d", id), nil
-		},
-		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
-			_ = connection.Send(f)
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	restored := make(chan struct{}, 5)
 	received := make(chan wspulse.Frame, 5)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=reconnect-delivers"),
 		client.WithAutoReconnect(3, 50*time.Millisecond, 200*time.Millisecond),
 		client.WithOnTransportRestore(func() {
 			select {
@@ -796,10 +814,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	}
 
 	// Drop the connection.
-	firstID := fmt.Sprintf("rc-%d", clientIDCounter.Load())
-	if err := srv.Kick(firstID); err != nil {
-		t.Fatalf("Kick failed: %v", err)
-	}
+	kickConnection(t, "reconnect-delivers")
 
 	// Wait for onTransportRestore (fires after pumps have been started).
 	select {
@@ -824,9 +839,8 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
 	disconnectErr := make(chan error, 1)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=disconnect-nil"),
 		client.WithOnDisconnect(func(err error) {
 			disconnectErr <- err
 		}),
@@ -849,23 +863,19 @@ func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
 
 func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	t.Parallel()
-	connected := make(chan wspulse.Connection, 1)
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-		wspulse.WithOnConnect(func(connection wspulse.Connection) {
-			connected <- connection
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	disconnectErr := make(chan error, 1)
+	echoReceived := make(chan struct{}, 1)
 	c, err := client.Dial(url,
 		client.WithOnDisconnect(func(err error) {
 			disconnectErr <- err
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case echoReceived <- struct{}{}:
+			default:
+			}
 		}),
 	)
 	if err != nil {
@@ -873,13 +883,17 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
 	select {
-	case <-connected:
+	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for connection")
+		t.Fatal("timed out waiting for echo")
 	}
 
-	srv.Close()
+	closeServer()
 
 	select {
 	case got := <-disconnectErr:
@@ -893,26 +907,19 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 
 func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	t.Parallel()
-	connected := make(chan struct{}, 1)
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-		wspulse.WithOnConnect(func(_ wspulse.Connection) {
-			select {
-			case connected <- struct{}{}:
-			default:
-			}
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	disconnectErr := make(chan error, 1)
+	echoReceived := make(chan struct{}, 1)
 	c, err := client.Dial(url,
 		client.WithOnDisconnect(func(err error) {
 			disconnectErr <- err
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case echoReceived <- struct{}{}:
+			default:
+			}
 		}),
 	)
 	if err != nil {
@@ -920,13 +927,17 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
 	select {
-	case <-connected:
+	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for connection")
+		t.Fatal("timed out waiting for echo")
 	}
 
-	srv.Close()
+	closeServer()
 
 	select {
 	case got := <-disconnectErr:
@@ -940,13 +951,7 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 
 func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	disconnectErr := make(chan error, 1)
 	c, err := client.Dial(url,
@@ -960,8 +965,7 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	srv.Close()
-	ts.Close()
+	closeServer()
 
 	select {
 	case got := <-disconnectErr:
@@ -975,13 +979,7 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 
 func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	disconnected := make(chan struct{}, 1)
 	c, err := client.Dial(url,
@@ -999,8 +997,7 @@ func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Shut down the server so reconnect dials fail.
-	srv.Close()
-	ts.Close()
+	closeServer()
 
 	// Done() should close after max retries are exhausted.
 	select {
@@ -1019,18 +1016,8 @@ func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 
 func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	transportDropped := make(chan struct{}, 1)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=close-during-backoff"),
 		// Long backoff so Close() hits while the timer is still running.
 		client.WithAutoReconnect(3, 10*time.Second, 30*time.Second),
 		client.WithOnTransportDrop(func(err error) {
@@ -1044,22 +1031,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	// Poll until the hub has registered the session, then kick it.
-	// Kick returns ErrConnectionNotFound if called before the hub processes
-	// the join message, which causes a flaky transport-drop timeout.
-	kickDeadline := time.Now().Add(2 * time.Second)
-	var lastKickErr error
-	for {
-		if err := srv.Kick("c1"); err != nil {
-			lastKickErr = err
-			if time.Now().After(kickDeadline) {
-				t.Fatalf("server did not register c1 within 2s (last error: %v)", lastKickErr)
-			}
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-		break
-	}
+	kickConnection(t, "close-during-backoff")
 
 	select {
 	case <-transportDropped:
@@ -1086,25 +1058,10 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 
 func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	t.Parallel()
-	var clientIDCounter atomic.Int64
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			id := clientIDCounter.Add(1)
-			return "room", fmt.Sprintf("tr-%d", id), nil
-		},
-		wspulse.WithOnMessage(func(connection wspulse.Connection, f wspulse.Frame) {
-			_ = connection.Send(f)
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	transportDropped := make(chan struct{}, 5)
 	transportRestored := make(chan struct{}, 5)
 	received := make(chan wspulse.Frame, 5)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=restore-fires"),
 		client.WithAutoReconnect(3, 50*time.Millisecond, 200*time.Millisecond),
 		client.WithOnTransportDrop(func(err error) {
 			select {
@@ -1131,18 +1088,7 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Drop the connection.
-	firstID := fmt.Sprintf("tr-%d", clientIDCounter.Load())
-	kickDeadline := time.Now().Add(2 * time.Second)
-	for {
-		if err := srv.Kick(firstID); err != nil {
-			if time.Now().After(kickDeadline) {
-				t.Fatalf("server did not register %s within 2s", firstID)
-			}
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-		break
-	}
+	kickConnection(t, "restore-fires")
 
 	// Verify onTransportDrop fires.
 	select {
@@ -1174,10 +1120,8 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 
 func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	t.Parallel()
-	url := startEchoServer(t)
-
 	var restoreCount atomic.Int32
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("id=restore-no-initial"),
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
 		}),
@@ -1198,15 +1142,7 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 
 func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	t.Parallel()
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "c1", nil
-		},
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	var restoreCount atomic.Int32
 	disconnectErr := make(chan error, 1)
@@ -1225,8 +1161,7 @@ func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Shut down the server so all reconnect dials fail.
-	srv.Close()
-	ts.Close()
+	closeServer()
 
 	// Wait for onDisconnect with ErrRetriesExhausted.
 	select {
@@ -1243,42 +1178,11 @@ func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	}
 }
 
-// startNoPongServer creates a raw WebSocket server that accepts connections
-// but never replies to Ping frames. This is achieved by overriding the default
-// ping handler (which normally sends an automatic Pong) with a no-op.
-// The server keeps the connection alive by reading messages in a loop until
-// the connection is closed.
-func startNoPongServer(t *testing.T) string {
-	t.Helper()
-	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wsConn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
-			t.Errorf("websocket upgrade failed: %v", err)
-			return
-		}
-		// Override the default ping handler so no Pong is ever sent.
-		wsConn.SetPingHandler(func(string) error { return nil })
-		defer wsConn.Close()
-		// Keep reading to hold the connection open; exit on any error.
-		for {
-			if _, _, err := wsConn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	})
-	ts := httptest.NewServer(handler)
-	t.Cleanup(ts.Close)
-	return "ws" + strings.TrimPrefix(ts.URL, "http")
-}
-
 func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 	t.Parallel()
-	url := startNoPongServer(t)
-
+	// Use testserver's ?ignore_pings=1 mode.
 	disconnected := make(chan error, 1)
-	c, err := client.Dial(url,
+	c, err := client.Dial(wsURL("ignore_pings=1"),
 		// Fast ping interval (100ms), short pong timeout (300ms), generous write wait.
 		client.WithHeartbeat(100*time.Millisecond, 300*time.Millisecond, 10*time.Second),
 		client.WithOnDisconnect(func(err error) {
@@ -1314,30 +1218,22 @@ func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 
 func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 	t.Parallel()
-	connected := make(chan struct{}, 1)
-	srv := wspulse.NewServer(
-		func(r *http.Request) (string, string, error) {
-			return "room", "race-1", nil
-		},
-		wspulse.WithOnConnect(func(_ wspulse.Connection) {
-			select {
-			case connected <- struct{}{}:
-			default:
-			}
-		}),
-	)
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Cleanup(srv.Close)
-	url := "ws" + strings.TrimPrefix(ts.URL, "http")
+	url, closeServer := startClosableEchoServer(t)
 
 	var disconnectCount atomic.Int32
 	disconnectDone := make(chan struct{}, 1)
+	echoReceived := make(chan struct{}, 1)
 	c, err := client.Dial(url,
 		client.WithOnDisconnect(func(err error) {
 			disconnectCount.Add(1)
 			select {
 			case disconnectDone <- struct{}{}:
+			default:
+			}
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case echoReceived <- struct{}{}:
 			default:
 			}
 		}),
@@ -1347,11 +1243,14 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Wait for the connection to be established on the server side.
+	// Confirm the connection is established by round-tripping a frame.
+	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
 	select {
-	case <-connected:
+	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for server to register connection")
+		t.Fatal("timed out waiting for echo")
 	}
 
 	// Simultaneously close the client and drop the server connection.
@@ -1363,7 +1262,7 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	}()
 	go func() {
 		defer wg.Done()
-		srv.Close()
+		closeServer()
 	}()
 
 	done := make(chan struct{})
@@ -1391,5 +1290,4 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	if count := disconnectCount.Load(); count != 1 {
 		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
 	}
-
 }
