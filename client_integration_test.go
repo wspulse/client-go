@@ -559,7 +559,9 @@ func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
 func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	t.Parallel()
 	// Use a raw server that does not read messages, so the client's write
-	// buffer fills up.
+	// buffer fills up. httptest.Server.Close does not cancel r.Context for
+	// hijacked connections, so we use an explicit done channel.
+	done := make(chan struct{})
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wsConn, err := upgrader.Upgrade(w, r, nil)
@@ -568,9 +570,10 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 		}
 		defer func() { _ = wsConn.Close() }()
 		// Hold connection open but do not read (to cause backpressure).
-		<-r.Context().Done()
+		<-done
 	})
 	url := startRawServer(t, handler)
+	t.Cleanup(func() { close(done) })
 
 	c, err := client.Dial(url)
 	if err != nil {

@@ -78,18 +78,26 @@ func TestMain(m *testing.M) {
 	case <-ready:
 	case <-time.After(10 * time.Second):
 		_ = tsCmd.Process.Kill()
+		_, _ = tsCmd.Process.Wait()
+		_ = os.RemoveAll(tsBinDir)
 		fmt.Fprintf(os.Stderr, "testserver did not become ready within 10s\n")
 		os.Exit(1)
 	}
 
-	// Run tests with goleak verification.
-	goleak.VerifyTestMain(m,
-		goleak.Cleanup(func(exitCode int) {
-			_ = tsCmd.Process.Kill()
-			_, _ = tsCmd.Process.Wait()
-			_ = os.RemoveAll(tsBinDir)
-		}),
-	)
+	// Run tests, then shut down testserver before leak check.
+	// Kill order: m.Run → kill process (closes stderr pipe → drain goroutine
+	// exits) → goleak.Find (no false positives from drain goroutine).
+	exitCode := m.Run()
+
+	_ = tsCmd.Process.Kill()
+	_, _ = tsCmd.Process.Wait()
+	_ = os.RemoveAll(tsBinDir)
+
+	if err := goleak.Find(); err != nil {
+		fmt.Fprintf(os.Stderr, "goroutine leak detected:\n%v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(exitCode)
 }
 
 // wsURL returns a WebSocket URL for the shared testserver.
