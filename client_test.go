@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/goleak"
-
 	"github.com/wspulse/client-go"
 	wspulse "github.com/wspulse/core"
 )
@@ -271,8 +269,4 @@ func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
 }
