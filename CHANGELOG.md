@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1] - 2026-03-28
+
+### Changed
+
+- Migrate integration tests from in-process `wspulse/server` to out-of-process `testserver` binary
+- Remove direct `github.com/wspulse/server` dependency — only `core` remains
+- Unify log message prefix from `wspulse/client:` to `wspulse:` across all internal logging
+
+---
+
 ## [0.4.0] - 2026-03-24
 
 ### Added
@@ -91,7 +101,9 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/wspulse/client-go/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/wspulse/client-go/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/wspulse/client-go/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/wspulse/client-go/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/wspulse/client-go/compare/v0.2.0...v0.2.1
