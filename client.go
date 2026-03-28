@@ -83,7 +83,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	if err := c.dialOnce(); err != nil {
 		return nil, fmt.Errorf("wspulse: dial: %w", err)
 	}
-	c.logger.Debug("wspulse/client: connected",
+	c.logger.Debug("wspulse: connected",
 		zap.String("url", urlStr),
 	)
 	dropped := make(chan struct{})
@@ -96,7 +96,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		go func() {
 			defer c.goroutineWaitGroup.Done()
 			<-dropped
-			c.logger.Debug("wspulse/client: connection dropped permanently (no reconnect)")
+			c.logger.Debug("wspulse: connection dropped permanently (no reconnect)")
 
 			// If done is already closed, Close() was called first — normal closure.
 			// Otherwise the server dropped the connection — abnormal.
@@ -155,7 +155,7 @@ func (c *internalClient) Send(f wspulse.Frame) error {
 // Use go c.Close() instead if closing from a callback is required.
 func (c *internalClient) Close() error {
 	c.once.Do(func() {
-		c.logger.Info("wspulse/client: closing",
+		c.logger.Info("wspulse: closing",
 			zap.String("url", c.url),
 		)
 		close(c.done)
@@ -190,15 +190,15 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			readErr = fmt.Errorf("wspulse/client: readPump panic: %v", r)
-			c.logger.Error("wspulse/client: readPump panic recovered",
+			readErr = fmt.Errorf("wspulse: readPump panic: %v", r)
+			c.logger.Error("wspulse: readPump panic recovered",
 				zap.Any("panic", r),
 			)
 		}
 		_ = wsConnection.Close()
 		close(dropped)
 
-		c.logger.Debug("wspulse/client: connection lost",
+		c.logger.Debug("wspulse: connection lost",
 			zap.Error(readErr),
 		)
 
@@ -227,7 +227,7 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 			if decodeErr == nil {
 				fn(frame)
 			} else {
-				c.logger.Warn("wspulse/client: decode failed, frame dropped",
+				c.logger.Warn("wspulse: decode failed, frame dropped",
 					zap.Error(decodeErr),
 				)
 			}
@@ -253,7 +253,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 	for {
 		select {
 		case <-connectionQuit:
-			c.logger.Debug("wspulse/client: writePump yielding for reconnect (priority)")
+			c.logger.Debug("wspulse: writePump yielding for reconnect (priority)")
 			return
 		default:
 		}
@@ -262,7 +262,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 		case data := <-c.send:
 			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := wsConnection.WriteMessage(c.config.codec.FrameType(), data); err != nil {
-				c.logger.Warn("wspulse/client: write failed",
+				c.logger.Warn("wspulse: write failed",
 					zap.Error(err),
 				)
 				return
@@ -271,14 +271,14 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 		case <-ticker.C:
 			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := wsConnection.WriteMessage(websocket.PingMessage, nil); err != nil {
-				c.logger.Warn("wspulse/client: ping write failed",
+				c.logger.Warn("wspulse: ping write failed",
 					zap.Error(err),
 				)
 				return
 			}
 
 		case <-c.done:
-			c.logger.Debug("wspulse/client: writePump stopping (client closed)")
+			c.logger.Debug("wspulse: writePump stopping (client closed)")
 			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
 			_ = wsConnection.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
@@ -286,7 +286,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 			return
 
 		case <-connectionQuit:
-			c.logger.Debug("wspulse/client: writePump yielding for reconnect")
+			c.logger.Debug("wspulse: writePump yielding for reconnect")
 			return
 		}
 	}
@@ -310,7 +310,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		}
 
 		if c.config.maxRetries > 0 && attempt >= c.config.maxRetries {
-			c.logger.Warn("wspulse/client: max retries exhausted, closing client",
+			c.logger.Warn("wspulse: max retries exhausted, closing client",
 				zap.Int("max_retries", c.config.maxRetries),
 			)
 			disconnectErr = ErrRetriesExhausted
@@ -322,7 +322,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		}
 
 		delay := backoff(attempt, c.config.baseDelay, c.config.maxDelay)
-		c.logger.Debug("wspulse/client: connection dropped, backoff before retry",
+		c.logger.Debug("wspulse: connection dropped, backoff before retry",
 			zap.Int("attempt", attempt),
 			zap.Duration("delay", delay),
 		)
@@ -334,12 +334,12 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		case <-backoffTimer.C:
 		}
 
-		c.logger.Debug("wspulse/client: reconnect attempt",
+		c.logger.Debug("wspulse: reconnect attempt",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
 		)
 		if err := c.dialOnce(); err != nil {
-			c.logger.Debug("wspulse/client: dial failed",
+			c.logger.Debug("wspulse: dial failed",
 				zap.Int("attempt", attempt),
 				zap.Error(err),
 			)
@@ -351,7 +351,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 
 		select {
 		case <-c.quit:
-			c.logger.Debug("wspulse/client: quit during dial, closing fresh connection")
+			c.logger.Debug("wspulse: quit during dial, closing fresh connection")
 			c.mu.Lock()
 			_ = c.connection.Close()
 			c.mu.Unlock()
@@ -375,7 +375,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		c.goroutineWaitGroup.Add(2)
 		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newQuit, newPumpDone) }()
 		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
-		c.logger.Info("wspulse/client: reconnected",
+		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
 		)
