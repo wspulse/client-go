@@ -624,7 +624,7 @@ func TestClient_Send_CustomBufferSize_ReturnsErrSendBufferFull(t *testing.T) {
 	// Fill the send buffer and expect ErrSendBufferFull.
 	var firstFullIdx int
 	for i := 0; i < bufSize+10; i++ {
-		err := c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`"x"`)})
+		err := c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`"x"`)})
 		if errors.Is(err, wspulse.ErrSendBufferFull) {
 			firstFullIdx = i
 			break
