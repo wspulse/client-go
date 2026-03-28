@@ -39,6 +39,7 @@ func TestMain(m *testing.M) {
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to install testserver: %v\n", err)
+		_ = os.RemoveAll(tmpDir)
 		os.Exit(1)
 	}
 
@@ -57,7 +58,9 @@ func TestMain(m *testing.M) {
 	// Parse READY:<ws_port>:<control_port> from stderr.
 	scanner := bufio.NewScanner(stderrPipe)
 	ready := make(chan struct{})
+	drainDone := make(chan struct{})
 	go func() {
+		defer close(drainDone)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "READY:") {
@@ -86,11 +89,12 @@ func TestMain(m *testing.M) {
 
 	// Run tests, then shut down testserver before leak check.
 	// Kill order: m.Run → kill process (closes stderr pipe → drain goroutine
-	// exits) → goleak.Find (no false positives from drain goroutine).
+	// exits) → wait for drain goroutine → goleak.Find.
 	exitCode := m.Run()
 
 	_ = tsCmd.Process.Kill()
 	_, _ = tsCmd.Process.Wait()
+	<-drainDone
 	_ = os.RemoveAll(tsBinDir)
 
 	if err := goleak.Find(); err != nil {
