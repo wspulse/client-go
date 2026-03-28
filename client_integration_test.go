@@ -98,6 +98,7 @@ func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 		if err != nil {
 			return
 		}
+		defer wsConn.Close()
 		mu.Lock()
 		conns = append(conns, wsConn)
 		mu.Unlock()

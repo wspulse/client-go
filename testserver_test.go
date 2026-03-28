@@ -48,10 +48,12 @@ func TestMain(m *testing.M) {
 	stderrPipe, err := tsCmd.StderrPipe()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create stderr pipe: %v\n", err)
+		_ = os.RemoveAll(tmpDir)
 		os.Exit(1)
 	}
 	if err := tsCmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start testserver: %v\n", err)
+		_ = os.RemoveAll(tmpDir)
 		os.Exit(1)
 	}
 
