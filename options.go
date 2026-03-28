@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -180,7 +181,7 @@ func WithSendBufferSize(n int) ClientOption {
 		panic("wspulse: sendBufferSize must be at least 1")
 	}
 	if n > maxSendBufFrames {
-		panic("wspulse: sendBufferSize exceeds maximum (4096)")
+		panic(fmt.Sprintf("wspulse: sendBufferSize exceeds maximum (%d)", maxSendBufFrames))
 	}
 	return func(c *clientConfig) { c.sendBufferSize = n }
 }

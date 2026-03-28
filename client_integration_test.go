@@ -598,6 +598,51 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	}
 }
 
+func TestClient_Send_CustomBufferSize_ReturnsErrSendBufferFull(t *testing.T) {
+	t.Parallel()
+	// Use a raw server that never reads, so the client's send channel fills.
+	done := make(chan struct{})
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = wsConn.Close() }()
+		<-done
+	})
+	url := startRawServer(t, handler)
+	t.Cleanup(func() { close(done) })
+
+	const bufSize = 2
+	c, err := client.Dial(url, client.WithSendBufferSize(bufSize))
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Fill the send buffer and expect ErrSendBufferFull.
+	var firstFullIdx int
+	for i := 0; i < bufSize+10; i++ {
+		err := c.Send(wspulse.Frame{Type: "msg", Payload: []byte(`"x"`)})
+		if errors.Is(err, wspulse.ErrSendBufferFull) {
+			firstFullIdx = i
+			break
+		}
+		if errors.Is(err, wspulse.ErrConnectionClosed) {
+			t.Fatal("connection closed before buffer filled")
+		}
+	}
+	if firstFullIdx == 0 {
+		t.Fatal("ErrSendBufferFull was never returned")
+	}
+	// The writePump may drain one slot before our loop fills the channel,
+	// so accept any index in [bufSize, bufSize+10).
+	if firstFullIdx < bufSize {
+		t.Errorf("ErrSendBufferFull returned too early: index %d, buffer size %d", firstFullIdx, bufSize)
+	}
+}
+
 func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Parallel()
 	// Need a server that sends a raw invalid JSON frame then a valid one.
