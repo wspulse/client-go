@@ -11,13 +11,14 @@ import (
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
 const (
-	maxPingPeriod   = 1 * time.Minute  // WithHeartbeat: pingPeriod upper bound
-	maxPongWait     = 2 * time.Minute  // WithHeartbeat: pongWait upper bound
-	maxWriteWait    = 30 * time.Second // WithHeartbeat: writeWait upper bound
-	maxMsgSizeBytes = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
-	maxBaseDelay    = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
-	maxDelayLimit   = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
-	maxRetriesLimit = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
+	maxPingPeriod    = 1 * time.Minute  // WithHeartbeat: pingPeriod upper bound
+	maxPongWait      = 2 * time.Minute  // WithHeartbeat: pongWait upper bound
+	maxWriteWait     = 30 * time.Second // WithHeartbeat: writeWait upper bound
+	maxMsgSizeBytes  = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
+	maxBaseDelay     = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
+	maxDelayLimit    = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
+	maxRetriesLimit  = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
+	maxSendBufFrames = 4096             // WithSendBufferSize upper bound
 )
 
 // ClientOption configures a Client.
@@ -39,6 +40,7 @@ type clientConfig struct {
 	pingPeriod         time.Duration
 	writeWait          time.Duration
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
+	sendBufferSize     int   // outbound channel capacity (number of frames)
 	clock              clock
 }
 
@@ -54,6 +56,7 @@ func defaultClientConfig() *clientConfig {
 		pingPeriod:     20 * time.Second,
 		writeWait:      10 * time.Second,
 		maxMessageSize: 1 << 20, // 1 MiB
+		sendBufferSize: 256,
 		clock:          realClock{},
 	}
 }
@@ -168,6 +171,18 @@ func WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration) ClientOption {
 		c.pongWait = pongWait
 		c.writeWait = writeWait
 	}
+}
+
+// WithSendBufferSize sets the outbound channel capacity (number of frames).
+// n must be in [1, 4096]. Default is 256.
+func WithSendBufferSize(n int) ClientOption {
+	if n < 1 {
+		panic("wspulse: sendBufferSize must be at least 1")
+	}
+	if n > maxSendBufFrames {
+		panic("wspulse: sendBufferSize exceeds maximum (4096)")
+	}
+	return func(c *clientConfig) { c.sendBufferSize = n }
 }
 
 // WithMaxMessageSize sets the maximum size in bytes for inbound messages.
