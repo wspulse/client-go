@@ -74,7 +74,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		url:            urlStr,
 		config:         config,
 		logger:         config.logger,
-		send:           make(chan []byte, 256),
+		send:           make(chan []byte, config.sendBufferSize),
 		done:           make(chan struct{}),
 		quit:           make(chan struct{}),
 		connectionQuit: connectionQuit,

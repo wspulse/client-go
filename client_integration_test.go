@@ -598,6 +598,22 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	}
 }
 
+func TestClient_Send_CustomBufferSize_Applied(t *testing.T) {
+	t.Parallel()
+	const bufSize = 4
+	c, err := client.Dial(wsURL("id=custom-buf"),
+		client.WithSendBufferSize(bufSize),
+	)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	if got := client.SendBufferCap(c); got != bufSize {
+		t.Errorf("SendBufferCap = %d, want %d", got, bufSize)
+	}
+}
+
 func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Parallel()
 	// Need a server that sends a raw invalid JSON frame then a valid one.

@@ -79,6 +79,41 @@ func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
 	}
 }
 
+func TestClient_WithSendBufferSize_InvalidParam_Panics(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		n       int
+		wantMsg string
+	}{
+		{"zero", 0, "wspulse: sendBufferSize must be at least 1"},
+		{"negative", -1, "wspulse: sendBufferSize must be at least 1"},
+		{"exceeds max", 4097, "wspulse: sendBufferSize exceeds maximum (4096)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("expected panic")
+				}
+				if msg, ok := r.(string); !ok || msg != tc.wantMsg {
+					t.Fatalf("panic message = %v, want %q", r, tc.wantMsg)
+				}
+			}()
+			client.WithSendBufferSize(tc.n)
+		})
+	}
+}
+
+func TestClient_WithSendBufferSize_ValidValues(t *testing.T) {
+	t.Parallel()
+	for _, n := range []int{1, 256, 4096} {
+		// Should not panic.
+		client.WithSendBufferSize(n)
+	}
+}
+
 func TestClient_WithMaxMessageSize_InvalidParam_Panics(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
