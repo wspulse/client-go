@@ -24,6 +24,9 @@ func TestNormalizeScheme(t *testing.T) {
 		{"http with port", "http://host:8080/ws", "ws://host:8080/ws"},
 		{"https with port and query", "https://host:443/ws?token=abc", "wss://host:443/ws?token=abc"},
 		{"https with fragment", "https://host/ws#section", "wss://host/ws#section"},
+		{"HTTP uppercase", "HTTP://host/ws", "ws://host/ws"},
+		{"HTTPS uppercase", "HTTPS://host/ws", "wss://host/ws"},
+		{"Http mixed case", "Http://host/ws", "ws://host/ws"},
 		{"unsupported scheme passthrough", "ftp://host/ws", "ftp://host/ws"},
 		{"missing scheme passthrough", "host/ws", "host/ws"},
 	}

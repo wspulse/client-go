@@ -397,10 +397,14 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 // equivalents (http → ws, https → wss). All other URLs are returned
 // unchanged — the underlying WebSocket dialer rejects invalid schemes.
 func normalizeScheme(rawURL string) string {
+	if len(rawURL) < 8 {
+		return rawURL
+	}
+	lower := strings.ToLower(rawURL[:8])
 	switch {
-	case strings.HasPrefix(rawURL, "https://"):
+	case strings.HasPrefix(lower, "https://"):
 		return "wss://" + rawURL[len("https://"):]
-	case strings.HasPrefix(rawURL, "http://"):
+	case strings.HasPrefix(lower, "http://"):
 		return "ws://" + rawURL[len("http://"):]
 	default:
 		return rawURL
