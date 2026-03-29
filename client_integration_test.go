@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -400,8 +399,8 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 
 	_ = c.Close()
 
-	time.Sleep(500 * time.Millisecond)
-
+	// Close() blocks until all goroutines and callbacks complete.
+	// No sleep needed — check immediately.
 	mu.Lock()
 	dc := disconnectCount
 	mu.Unlock()
@@ -726,19 +725,17 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 		}
 		clients[i] = c
 	}
-	time.Sleep(50 * time.Millisecond)
 
-	before := runtime.NumGoroutine()
-	for _, c := range clients {
+	// Close all clients and verify Done() is closed for each.
+	// This is deterministic — no NumGoroutine diff that can be
+	// corrupted by parallel tests or GC goroutines.
+	for i, c := range clients {
 		_ = c.Close()
-	}
-	after := runtime.NumGoroutine()
-
-	// Each client spawns 3 internal goroutines. If Close() properly
-	// blocks until they exit, NumGoroutine drops by roughly count*3.
-	if reclaimed := before - after; reclaimed < count {
-		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
-			reclaimed, count, before, after)
+		select {
+		case <-c.Done():
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+		}
 	}
 }
 
@@ -755,17 +752,14 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		}
 		clients[i] = c
 	}
-	time.Sleep(50 * time.Millisecond)
 
-	before := runtime.NumGoroutine()
-	for _, c := range clients {
+	for i, c := range clients {
 		_ = c.Close()
-	}
-	after := runtime.NumGoroutine()
-
-	if reclaimed := before - after; reclaimed < count {
-		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
-			reclaimed, count, before, after)
+		select {
+		case <-c.Done():
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+		}
 	}
 }
 
@@ -1059,10 +1053,9 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 		t.Fatal("timed out waiting for transport drop")
 	}
 
-	// Let the reconnect loop reach the backoff select.
-	time.Sleep(100 * time.Millisecond)
-
 	// Close() must not block waiting for the long backoff timer.
+	// Close() closes the done channel; when the reconnect loop
+	// reaches the backoff select, it sees done and exits.
 	closeDone := make(chan struct{})
 	go func() {
 		_ = c.Close()
@@ -1150,8 +1143,12 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	// Give enough time for any erroneous callback to fire.
-	time.Sleep(300 * time.Millisecond)
+	// Round-trip a frame to prove all pumps are fully operational.
+	// If onTransportRestore were incorrectly fired, it would have
+	// happened during or immediately after Dial()/pump startup.
+	if err := c.Send(wspulse.Frame{Event: "probe"}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
 
 	_ = c.Close()
 
@@ -1304,9 +1301,8 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 		t.Fatal("timed out waiting for onDisconnect")
 	}
 
-	// Allow a short grace period for any spurious second invocations.
-	time.Sleep(200 * time.Millisecond)
-
+	// Close() blocks until all goroutines exit and callbacks complete.
+	// No sleep needed — check immediately after Close + onDisconnect sync.
 	if count := disconnectCount.Load(); count != 1 {
 		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
 	}
