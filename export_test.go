@@ -9,7 +9,9 @@ func SendBufferCap(c Client) int {
 }
 
 // NormalizeScheme exports normalizeScheme for testing only.
-var NormalizeScheme = normalizeScheme
+func NormalizeScheme(rawURL string) string {
+	return normalizeScheme(rawURL)
+}
 
 // WithClock returns a ClientOption that sets the clock. Test-only.
 func WithClock(c Clock) ClientOption {

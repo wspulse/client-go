@@ -397,7 +397,11 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 // URLs are programmer errors, not runtime conditions.
 func normalizeScheme(rawURL string) string {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme == "" {
+	if err != nil {
+		// Let the underlying dial surface the parse error as a regular error.
+		return rawURL
+	}
+	if u.Scheme == "" {
 		panic("wspulse: url must include scheme (ws://, wss://, http://, or https://)")
 	}
 	switch u.Scheme {
