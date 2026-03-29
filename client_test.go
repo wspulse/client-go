@@ -64,6 +64,36 @@ func TestNormalizeScheme_UnsupportedScheme_Panics(t *testing.T) {
 	client.NormalizeScheme("ftp://host/ws")
 }
 
+func TestDial_MissingScheme_Panics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for missing scheme")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "wspulse: url must include scheme") {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+	_, _ = client.Dial("host/ws")
+}
+
+func TestDial_UnsupportedScheme_Panics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for unsupported scheme")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "wspulse: unsupported url scheme") {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+	_, _ = client.Dial("ftp://host/ws")
+}
+
 func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
