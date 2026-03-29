@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/url"
 	"sync"
 	"time"
 
@@ -63,7 +64,12 @@ type internalClient struct {
 
 // Dial connects to urlStr and returns a Client.
 // If WithAutoReconnect is configured, reconnection runs in the background.
+//
+// Accepted URL schemes: ws://, wss://, http://, https://.
+// HTTP schemes are automatically converted to their WebSocket equivalents
+// (http → ws, https → wss). Missing or unsupported schemes cause a panic.
 func Dial(urlStr string, opts ...ClientOption) (Client, error) {
+	urlStr = normalizeScheme(urlStr)
 	config := defaultClientConfig()
 	for _, o := range opts {
 		o(config)
@@ -383,6 +389,28 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		if fn := c.config.onTransportRestore; fn != nil {
 			fn()
 		}
+	}
+}
+
+// normalizeScheme converts http/https schemes to ws/wss and panics on
+// missing or unsupported schemes. This is a setup-time check — invalid
+// URLs are programmer errors, not runtime conditions.
+func normalizeScheme(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" {
+		panic("wspulse: url must include scheme (ws://, wss://, http://, or https://)")
+	}
+	switch u.Scheme {
+	case "ws", "wss":
+		return rawURL
+	case "http":
+		u.Scheme = "ws"
+		return u.String()
+	case "https":
+		u.Scheme = "wss"
+		return u.String()
+	default:
+		panic(fmt.Sprintf("wspulse: unsupported url scheme %q, use ws://, wss://, http://, or https://", u.Scheme))
 	}
 }
 

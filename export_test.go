@@ -8,6 +8,9 @@ func SendBufferCap(c Client) int {
 	return cap(c.(*internalClient).send)
 }
 
+// NormalizeScheme exports normalizeScheme for testing only.
+var NormalizeScheme = normalizeScheme
+
 // WithClock returns a ClientOption that sets the clock. Test-only.
 func WithClock(c Clock) ClientOption {
 	if c == nil {
