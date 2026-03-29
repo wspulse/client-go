@@ -999,38 +999,29 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 
 func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	t.Parallel()
+	// Use a closable echo server so shutting it down doesn't affect
+	// other parallel tests using the shared testserver.
 	url, closeServer := startClosableEchoServer(t)
 
-	disconnected := make(chan struct{}, 1)
 	c, err := client.Dial(url,
 		client.WithAutoReconnect(2, 50*time.Millisecond, 200*time.Millisecond),
-		client.WithOnDisconnect(func(err error) {
-			select {
-			case disconnected <- struct{}{}:
-			default:
-			}
-		}),
+		client.WithHeartbeat(50*time.Millisecond, 150*time.Millisecond, 5*time.Second),
+		client.WithOnDisconnect(func(err error) {}),
 	)
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Shut down the server so reconnect dials fail.
+	// Close the server — reconnect dials get connection-refused instantly.
 	closeServer()
 
-	// Done() should close after max retries are exhausted.
+	// With 2 retries, baseDelay=50ms, maxDelay=200ms, short heartbeat
+	// to detect disconnect quickly, Done() should close well within 3s.
 	select {
 	case <-c.Done():
-	case <-time.After(10 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("timed out: Done() did not close after max retries exhausted")
-	}
-
-	// onDisconnect should have fired.
-	select {
-	case <-disconnected:
-	case <-time.After(time.Second):
-		t.Fatal("onDisconnect did not fire after max retries exhausted")
 	}
 }
 
