@@ -5,7 +5,7 @@
 ### Added
 
 - `WithSendBufferSize(n int)` option — configurable outbound channel capacity [1, 4096], default 256
-- `Dial` auto-converts `http://` → `ws://` and `https://` → `wss://` URL schemes. Missing or unsupported schemes panic.
+- `Dial` auto-converts `http://` → `ws://` and `https://` → `wss://` URL schemes
 
 ---
 
