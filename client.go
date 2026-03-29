@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +67,8 @@ type internalClient struct {
 //
 // Accepted URL schemes: ws://, wss://, http://, https://.
 // HTTP schemes are automatically converted to their WebSocket equivalents
-// (http → ws, https → wss). Missing or unsupported schemes cause a panic.
+// (http → ws, https → wss). Invalid or unsupported schemes are passed
+// through and will be rejected by the underlying WebSocket dialer.
 func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	urlStr = normalizeScheme(urlStr)
 	config := defaultClientConfig()
@@ -392,29 +393,17 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	}
 }
 
-// normalizeScheme converts http/https schemes to ws/wss and panics on
-// missing or unsupported schemes. This is a setup-time check — invalid
-// URLs are programmer errors, not runtime conditions.
+// normalizeScheme converts http/https URL schemes to their WebSocket
+// equivalents (http → ws, https → wss). All other URLs are returned
+// unchanged — the underlying WebSocket dialer rejects invalid schemes.
 func normalizeScheme(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		// Let the underlying dial surface the parse error as a regular error.
-		return rawURL
-	}
-	if u.Scheme == "" {
-		panic("wspulse: url must include scheme (ws://, wss://, http://, or https://)")
-	}
-	switch u.Scheme {
-	case "ws", "wss":
-		return rawURL
-	case "http":
-		u.Scheme = "ws"
-		return u.String()
-	case "https":
-		u.Scheme = "wss"
-		return u.String()
+	switch {
+	case strings.HasPrefix(rawURL, "https://"):
+		return "wss://" + rawURL[len("https://"):]
+	case strings.HasPrefix(rawURL, "http://"):
+		return "ws://" + rawURL[len("http://"):]
 	default:
-		panic(fmt.Sprintf("wspulse: unsupported url scheme %q, use ws://, wss://, http://, or https://", u.Scheme))
+		return rawURL
 	}
 }
 

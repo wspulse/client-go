@@ -23,6 +23,9 @@ func TestNormalizeScheme(t *testing.T) {
 		{"https to wss", "https://host/ws", "wss://host/ws"},
 		{"http with port", "http://host:8080/ws", "ws://host:8080/ws"},
 		{"https with port and query", "https://host:443/ws?token=abc", "wss://host:443/ws?token=abc"},
+		{"https with fragment", "https://host/ws#section", "wss://host/ws#section"},
+		{"unsupported scheme passthrough", "ftp://host/ws", "ftp://host/ws"},
+		{"missing scheme passthrough", "host/ws", "host/ws"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -32,66 +35,6 @@ func TestNormalizeScheme(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestNormalizeScheme_MissingScheme_Panics(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for missing scheme")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "wspulse: url must include scheme") {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}()
-	client.NormalizeScheme("host/ws")
-}
-
-func TestNormalizeScheme_UnsupportedScheme_Panics(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for unsupported scheme")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "wspulse: unsupported url scheme") {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}()
-	client.NormalizeScheme("ftp://host/ws")
-}
-
-func TestDial_MissingScheme_Panics(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for missing scheme")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "wspulse: url must include scheme") {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}()
-	_, _ = client.Dial("host/ws")
-}
-
-func TestDial_UnsupportedScheme_Panics(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for unsupported scheme")
-		}
-		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "wspulse: unsupported url scheme") {
-			t.Fatalf("unexpected panic: %v", r)
-		}
-	}()
-	_, _ = client.Dial("ftp://host/ws")
 }
 
 func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
