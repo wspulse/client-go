@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,7 +64,13 @@ type internalClient struct {
 
 // Dial connects to urlStr and returns a Client.
 // If WithAutoReconnect is configured, reconnection runs in the background.
+//
+// Accepted URL schemes: ws://, wss://, http://, https://.
+// HTTP schemes are automatically converted to their WebSocket equivalents
+// (http → ws, https → wss). Invalid or unsupported schemes are passed
+// through and will be rejected by the underlying WebSocket dialer.
 func Dial(urlStr string, opts ...ClientOption) (Client, error) {
+	urlStr = normalizeScheme(urlStr)
 	config := defaultClientConfig()
 	for _, o := range opts {
 		o(config)
@@ -383,6 +390,25 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		if fn := c.config.onTransportRestore; fn != nil {
 			fn()
 		}
+	}
+}
+
+// normalizeScheme converts http/https URL schemes to their WebSocket
+// equivalents (http → ws, https → wss). All other URLs are returned
+// unchanged — gorilla/websocket already validates schemes at dial
+// time and returns a catchable error, so we avoid duplicating that.
+func normalizeScheme(rawURL string) string {
+	if len(rawURL) < 8 {
+		return rawURL
+	}
+	lower := strings.ToLower(rawURL[:8])
+	switch {
+	case strings.HasPrefix(lower, "https://"):
+		return "wss://" + rawURL[len("https://"):]
+	case strings.HasPrefix(lower, "http://"):
+		return "ws://" + rawURL[len("http://"):]
+	default:
+		return rawURL
 	}
 }
 

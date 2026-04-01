@@ -10,6 +10,36 @@ import (
 	wspulse "github.com/wspulse/core"
 )
 
+func TestNormalizeScheme(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"ws passthrough", "ws://host/ws", "ws://host/ws"},
+		{"wss passthrough", "wss://host/ws", "wss://host/ws"},
+		{"http to ws", "http://host/ws", "ws://host/ws"},
+		{"https to wss", "https://host/ws", "wss://host/ws"},
+		{"http with port", "http://host:8080/ws", "ws://host:8080/ws"},
+		{"https with port and query", "https://host:443/ws?token=abc", "wss://host:443/ws?token=abc"},
+		{"https with fragment", "https://host/ws#section", "wss://host/ws#section"},
+		{"HTTP uppercase", "HTTP://host/ws", "ws://host/ws"},
+		{"HTTPS uppercase", "HTTPS://host/ws", "wss://host/ws"},
+		{"Http mixed case", "Http://host/ws", "ws://host/ws"},
+		{"unsupported scheme passthrough", "ftp://host/ws", "ftp://host/ws"},
+		{"missing scheme passthrough", "host/ws", "host/ws"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := client.NormalizeScheme(tc.input)
+			if got != tc.want {
+				t.Errorf("NormalizeScheme(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
