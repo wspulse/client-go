@@ -7,6 +7,10 @@
 - `WithSendBufferSize(n int)` option — configurable outbound channel capacity [1, 4096], default 256
 - `Dial` auto-converts `http://` to `ws://` and `https://` to `wss://` (case-insensitive per RFC 3986). Other schemes are passed through to the underlying WebSocket dialer.
 
+### Removed
+
+- **BREAKING**: `Frame.ID` field removed — transport layer does not use it. Applications needing message IDs should use Payload.
+
 ---
 
 ## [0.4.1] - 2026-03-28
