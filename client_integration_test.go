@@ -82,10 +82,10 @@ func (fc *fakeClock) TickerCount() int {
 // ── Raw WebSocket helpers ────────────────────────────────────────────────────
 
 // startClosableEchoServer creates a local httptest echo server with tracked
-// WebSocket connections. The returned closeFunc closes all active WS
-// connections then shuts down the HTTP server. This is used for tests that
-// need to make the server unreachable (server-drop, max-retries scenarios)
-// without affecting the shared testserver.
+// WebSocket connections. The returned closeFunc shuts down the HTTP listener
+// first (preventing new connections), then closes all active WS connections.
+// This is used for tests that need to make the server unreachable
+// (server-drop, max-retries scenarios) without affecting the shared testserver.
 func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 	t.Helper()
 	var mu sync.Mutex
@@ -116,13 +116,13 @@ func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 	var closeOnce sync.Once
 	closeFunc = func() {
 		closeOnce.Do(func() {
+			ts.Close()
 			mu.Lock()
 			for _, c := range conns {
 				_ = c.Close()
 			}
 			conns = nil
 			mu.Unlock()
-			ts.Close()
 		})
 	}
 	t.Cleanup(closeFunc)
