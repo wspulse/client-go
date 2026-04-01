@@ -723,6 +723,7 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial #%d failed: %v", i, err)
 		}
+		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
 
@@ -759,6 +760,7 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial #%d failed: %v", i, err)
 		}
+		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
 
@@ -1168,6 +1170,7 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
+	t.Cleanup(func() { _ = c.Close() })
 
 	// Round-trip a frame to prove all pumps are fully operational.
 	// If onTransportRestore were incorrectly fired, it would have
@@ -1184,8 +1187,6 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	if count := restoreCount.Load(); count != 0 {
 		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
 	}
-
-	_ = c.Close()
 }
 
 func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
