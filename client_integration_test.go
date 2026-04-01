@@ -727,13 +727,22 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 	}
 
 	// Close all clients and verify Done() is closed for each.
-	// This is deterministic — no NumGoroutine diff that can be
-	// corrupted by parallel tests or GC goroutines.
+	// Run Close() in a goroutine so the timeout select can detect
+	// a hang — calling Close() inline would block before the select.
 	for i, c := range clients {
-		_ = c.Close()
+		closeDone := make(chan struct{})
+		go func() {
+			_ = c.Close()
+			close(closeDone)
+		}()
+		select {
+		case <-closeDone:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+		}
 		select {
 		case <-c.Done():
-		case <-time.After(3 * time.Second):
+		case <-time.After(time.Second):
 			t.Fatalf("Client #%d: Done() not closed after Close()", i)
 		}
 	}
@@ -753,11 +762,22 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		clients[i] = c
 	}
 
+	// Run Close() in a goroutine so the timeout select can detect
+	// a hang — calling Close() inline would block before the select.
 	for i, c := range clients {
-		_ = c.Close()
+		closeDone := make(chan struct{})
+		go func() {
+			_ = c.Close()
+			close(closeDone)
+		}()
+		select {
+		case <-closeDone:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+		}
 		select {
 		case <-c.Done():
-		case <-time.After(3 * time.Second):
+		case <-time.After(time.Second):
 			t.Fatalf("Client #%d: Done() not closed after Close()", i)
 		}
 	}
@@ -1053,9 +1073,8 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 		t.Fatal("timed out waiting for transport drop")
 	}
 
-	// Close() must not block waiting for the long backoff timer.
-	// Close() closes the done channel; when the reconnect loop
-	// reaches the backoff select, it sees done and exits.
+	// Close() signals the reconnect loop so that when it reaches
+	// the backoff select during reconnect, it exits promptly.
 	closeDone := make(chan struct{})
 	go func() {
 		_ = c.Close()
@@ -1134,9 +1153,16 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	t.Parallel()
 	var restoreCount atomic.Int32
+	received := make(chan wspulse.Frame, 1)
 	c, err := client.Dial(wsURL("id=restore-no-initial"),
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case received <- f:
+			default:
+			}
 		}),
 	)
 	if err != nil {
@@ -1149,12 +1175,17 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	if err := c.Send(wspulse.Frame{Event: "probe"}); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
-
-	_ = c.Close()
+	select {
+	case <-received:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for probe echo")
+	}
 
 	if count := restoreCount.Load(); count != 0 {
 		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
 	}
+
+	_ = c.Close()
 }
 
 func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
