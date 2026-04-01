@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,10 +82,10 @@ func (fc *fakeClock) TickerCount() int {
 // ── Raw WebSocket helpers ────────────────────────────────────────────────────
 
 // startClosableEchoServer creates a local httptest echo server with tracked
-// WebSocket connections. The returned closeFunc closes all active WS
-// connections then shuts down the HTTP server. This is used for tests that
-// need to make the server unreachable (server-drop, max-retries scenarios)
-// without affecting the shared testserver.
+// WebSocket connections. The returned closeFunc shuts down the HTTP listener
+// first (preventing new connections), then closes all active WS connections.
+// This is used for tests that need to make the server unreachable
+// (server-drop, max-retries scenarios) without affecting the shared testserver.
 func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 	t.Helper()
 	var mu sync.Mutex
@@ -117,13 +116,13 @@ func startClosableEchoServer(t *testing.T) (url string, closeFunc func()) {
 	var closeOnce sync.Once
 	closeFunc = func() {
 		closeOnce.Do(func() {
+			ts.Close()
 			mu.Lock()
 			for _, c := range conns {
 				_ = c.Close()
 			}
 			conns = nil
 			mu.Unlock()
-			ts.Close()
 		})
 	}
 	t.Cleanup(closeFunc)
@@ -400,8 +399,8 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 
 	_ = c.Close()
 
-	time.Sleep(500 * time.Millisecond)
-
+	// Close() blocks until all goroutines and callbacks complete.
+	// No sleep needed — check immediately.
 	mu.Lock()
 	dc := disconnectCount
 	mu.Unlock()
@@ -724,21 +723,29 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial #%d failed: %v", i, err)
 		}
+		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
-	time.Sleep(50 * time.Millisecond)
 
-	before := runtime.NumGoroutine()
-	for _, c := range clients {
-		_ = c.Close()
-	}
-	after := runtime.NumGoroutine()
-
-	// Each client spawns 3 internal goroutines. If Close() properly
-	// blocks until they exit, NumGoroutine drops by roughly count*3.
-	if reclaimed := before - after; reclaimed < count {
-		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
-			reclaimed, count, before, after)
+	// Close all clients and verify Done() is closed for each.
+	// Run Close() in a goroutine so the timeout select can detect
+	// a hang — calling Close() inline would block before the select.
+	for i, c := range clients {
+		closeDone := make(chan struct{})
+		go func() {
+			_ = c.Close()
+			close(closeDone)
+		}()
+		select {
+		case <-closeDone:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+		}
+		select {
+		case <-c.Done():
+		case <-time.After(time.Second):
+			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+		}
 	}
 }
 
@@ -753,19 +760,28 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial #%d failed: %v", i, err)
 		}
+		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
-	time.Sleep(50 * time.Millisecond)
 
-	before := runtime.NumGoroutine()
-	for _, c := range clients {
-		_ = c.Close()
-	}
-	after := runtime.NumGoroutine()
-
-	if reclaimed := before - after; reclaimed < count {
-		t.Errorf("Close() did not wait for goroutines: reclaimed only %d, want >= %d (before=%d after=%d)",
-			reclaimed, count, before, after)
+	// Run Close() in a goroutine so the timeout select can detect
+	// a hang — calling Close() inline would block before the select.
+	for i, c := range clients {
+		closeDone := make(chan struct{})
+		go func() {
+			_ = c.Close()
+			close(closeDone)
+		}()
+		select {
+		case <-closeDone:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+		}
+		select {
+		case <-c.Done():
+		case <-time.After(time.Second):
+			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+		}
 	}
 }
 
@@ -1059,10 +1075,8 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 		t.Fatal("timed out waiting for transport drop")
 	}
 
-	// Let the reconnect loop reach the backoff select.
-	time.Sleep(100 * time.Millisecond)
-
-	// Close() must not block waiting for the long backoff timer.
+	// Close() signals the reconnect loop so that when it reaches
+	// the backoff select during reconnect, it exits promptly.
 	closeDone := make(chan struct{})
 	go func() {
 		_ = c.Close()
@@ -1141,19 +1155,34 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	t.Parallel()
 	var restoreCount atomic.Int32
+	received := make(chan wspulse.Frame, 1)
 	c, err := client.Dial(wsURL("id=restore-no-initial"),
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
+		}),
+		client.WithOnMessage(func(f wspulse.Frame) {
+			select {
+			case received <- f:
+			default:
+			}
 		}),
 	)
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
+	t.Cleanup(func() { _ = c.Close() })
 
-	// Give enough time for any erroneous callback to fire.
-	time.Sleep(300 * time.Millisecond)
-
-	_ = c.Close()
+	// Round-trip a frame to prove all pumps are fully operational.
+	// If onTransportRestore were incorrectly fired, it would have
+	// happened during or immediately after Dial()/pump startup.
+	if err := c.Send(wspulse.Frame{Event: "probe"}); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	select {
+	case <-received:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for probe echo")
+	}
 
 	if count := restoreCount.Load(); count != 0 {
 		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
@@ -1304,9 +1333,8 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 		t.Fatal("timed out waiting for onDisconnect")
 	}
 
-	// Allow a short grace period for any spurious second invocations.
-	time.Sleep(200 * time.Millisecond)
-
+	// Close() blocks until all goroutines exit and callbacks complete.
+	// No sleep needed — check immediately after Close + onDisconnect sync.
 	if count := disconnectCount.Load(); count != 1 {
 		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
 	}
