@@ -59,7 +59,6 @@ Every frame sent or received is a JSON object on the wire:
 
 ```json
 {
-  "id": "msg-001",
   "event": "chat.message",
   "payload": { "text": "hello" }
 }
