@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/wspulse/client-go"
@@ -146,19 +148,13 @@ func TestDial_SendAndReceive(t *testing.T) {
 	c, err := client.Dial(wsURL("id=send-recv"), client.WithOnMessage(func(f wspulse.Frame) {
 		received <- f
 	}))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 	frame := wspulse.Frame{Event: "echo", Payload: []byte(`"hello"`)}
-	if err := c.Send(frame); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(frame), "Send failed")
 	select {
 	case f := <-received:
-		if f.Event != "echo" {
-			t.Errorf("Event: want %q, got %q", "echo", f.Event)
-		}
+		assert.Equal(t, "echo", f.Event)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo")
 	}
@@ -167,9 +163,7 @@ func TestDial_SendAndReceive(t *testing.T) {
 func TestClient_Close_SafeToCallTwice(t *testing.T) {
 	t.Parallel()
 	c, err := client.Dial(wsURL("id=close-twice"))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
 	_ = c.Close()
 }
@@ -177,22 +171,16 @@ func TestClient_Close_SafeToCallTwice(t *testing.T) {
 func TestClient_Send_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 	t.Parallel()
 	c, err := client.Dial(wsURL("id=send-after-close"))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
 	sendErr := c.Send(wspulse.Frame{Event: "msg"})
-	if !errors.Is(sendErr, wspulse.ErrConnectionClosed) {
-		t.Errorf("want ErrConnectionClosed, got %v", sendErr)
-	}
+	assert.ErrorIs(t, sendErr, wspulse.ErrConnectionClosed)
 }
 
 func TestClient_Done_ClosedAfterClose(t *testing.T) {
 	t.Parallel()
 	c, err := client.Dial(wsURL("id=done-after-close"))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
 	select {
 	case <-c.Done():
@@ -204,9 +192,7 @@ func TestClient_Done_ClosedAfterClose(t *testing.T) {
 func TestClient_ConcurrentSendAndClose_NoRace(t *testing.T) {
 	t.Parallel()
 	c, err := client.Dial(wsURL("id=concurrent-send"))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	const senders = 8
 	var wg sync.WaitGroup
@@ -232,9 +218,7 @@ func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 			disconnected <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	_ = c.Close()
 
@@ -277,9 +261,7 @@ func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 			disconnected <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	select {
@@ -297,15 +279,11 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 	c, err := client.Dial(url, client.WithOnMessage(func(f wspulse.Frame) {
 		received <- f
 	}))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(3 * time.Second):
@@ -320,9 +298,7 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 		t.Fatal("timed out: Done() did not fire after server disconnect")
 	}
 
-	if err := c.Send(wspulse.Frame{Event: "msg"}); err != wspulse.ErrConnectionClosed {
-		t.Fatalf("want ErrConnectionClosed, got %v", err)
-	}
+	require.ErrorIs(t, c.Send(wspulse.Frame{Event: "msg"}), wspulse.ErrConnectionClosed)
 }
 
 func TestClient_WithDialHeaders(t *testing.T) {
@@ -349,16 +325,12 @@ func TestClient_WithDialHeaders(t *testing.T) {
 	headers.Set("X-Custom-Token", "test-token-123")
 
 	c, err := client.Dial(url, client.WithDialHeaders(headers))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	select {
 	case got := <-headerReceived:
-		if got != "test-token-123" {
-			t.Errorf("header value: want %q, got %q", "test-token-123", got)
-		}
+		assert.Equal(t, "test-token-123", got, "header value mismatch")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for header check")
 	}
@@ -383,14 +355,10 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
@@ -405,9 +373,7 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	dc := disconnectCount
 	mu.Unlock()
 
-	if dc != 1 {
-		t.Errorf("onDisconnect fired %d times, want exactly 1", dc)
-	}
+	assert.Equal(t, 1, dc, "onDisconnect fired unexpected number of times")
 }
 
 func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
@@ -422,9 +388,7 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	kickConnection(t, "transport-drop")
@@ -455,14 +419,10 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
@@ -517,9 +477,7 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	select {
@@ -539,9 +497,7 @@ func TestClient_WithLogger_ValidLogger_Applied(t *testing.T) {
 	t.Parallel()
 	logger, _ := zap.NewDevelopment()
 	c, err := client.Dial(wsURL("id=logger-test"), client.WithLogger(logger))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
 }
 
@@ -550,9 +506,7 @@ func TestClient_WithHeartbeat_ValidParams_Applied(t *testing.T) {
 	c, err := client.Dial(wsURL("id=heartbeat-test"),
 		client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
 }
 
@@ -576,9 +530,7 @@ func TestClient_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	t.Cleanup(func() { close(done) })
 
 	c, err := client.Dial(url)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	sawFull := false
@@ -603,14 +555,10 @@ func TestClient_Send_CustomBufferSize_Applied(t *testing.T) {
 	c, err := client.Dial(wsURL("id=custom-buf"),
 		client.WithSendBufferSize(bufSize),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
-	if got := client.SendBufferCap(c); got != bufSize {
-		t.Errorf("SendBufferCap = %d, want %d", got, bufSize)
-	}
+	assert.Equal(t, bufSize, client.SendBufferCap(c))
 }
 
 func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
@@ -644,16 +592,12 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 			received <- f
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	select {
 	case f := <-received:
-		if f.Event != "valid-frame" {
-			t.Fatalf("want event %q, got %q", "valid-frame", f.Event)
-		}
+		require.Equal(t, "valid-frame", f.Event)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for valid frame")
 	}
@@ -668,13 +612,10 @@ func TestClient_Close_WaitsForDisconnectCallback(t *testing.T) {
 			callbackDone.Store(true)
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(),
+		"Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
 func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
@@ -686,13 +627,10 @@ func TestClient_Close_WaitsForTransportDropCallback(t *testing.T) {
 			callbackDone.Store(true)
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(),
+		"Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
 }
 
 func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
@@ -705,13 +643,10 @@ func TestClient_Close_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 			callbackDone.Store(true)
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(),
+		"Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
 func TestClient_Close_WaitsForGoroutines(t *testing.T) {
@@ -720,9 +655,7 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 	clients := make([]client.Client, count)
 	for i := range clients {
 		c, err := client.Dial(wsURL(""))
-		if err != nil {
-			t.Fatalf("Dial #%d failed: %v", i, err)
-		}
+		require.NoError(t, err, "Dial #%d failed", i)
 		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
@@ -757,9 +690,7 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		c, err := client.Dial(wsURL(""),
 			client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		)
-		if err != nil {
-			t.Fatalf("Dial #%d failed: %v", i, err)
-		}
+		require.NoError(t, err, "Dial #%d failed", i)
 		t.Cleanup(func() { _ = c.Close() })
 		clients[i] = c
 	}
@@ -801,15 +732,11 @@ func (failEncodeCodec) FrameType() int { return 1 }
 func TestClient_Send_EncodeError_ReturnsError(t *testing.T) {
 	t.Parallel()
 	c, err := client.Dial(wsURL("id=encode-error"), client.WithCodec(failEncodeCodec{}))
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	err = c.Send(wspulse.Frame{Event: "msg"})
-	if err == nil {
-		t.Fatal("expected encode error, got nil")
-	}
+	require.Error(t, err, "expected encode error")
 }
 
 func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
@@ -831,20 +758,14 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Verify initial connectivity.
-	if err := c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send before kick: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
 	select {
 	case f := <-received:
-		if f.Event != "before" {
-			t.Fatalf("want event %q, got %q", "before", f.Event)
-		}
+		require.Equal(t, "before", f.Event)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo before kick")
 	}
@@ -860,14 +781,10 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	}
 
 	// Verify post-reconnect message delivery.
-	if err := c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}); err != nil {
-		t.Fatalf("Send after reconnect: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
 	select {
 	case f := <-received:
-		if f.Event != "after" {
-			t.Fatalf("want event %q, got %q", "after", f.Event)
-		}
+		require.Equal(t, "after", f.Event)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo after reconnect")
 	}
@@ -881,17 +798,13 @@ func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
 			disconnectErr <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	_ = c.Close()
 
 	select {
 	case got := <-disconnectErr:
-		if got != nil {
-			t.Errorf("want nil error on normal Close(), got %v", got)
-		}
+		assert.NoError(t, got, "want nil error on normal Close()")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -914,15 +827,11 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
@@ -933,9 +842,7 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if got == nil {
-			t.Error("want non-nil error on server drop, got nil")
-		}
+		assert.Error(t, got, "want non-nil error on server drop")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -958,15 +865,11 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
@@ -977,9 +880,7 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if !errors.Is(got, client.ErrConnectionLost) {
-			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
-		}
+		assert.ErrorIs(t, got, client.ErrConnectionLost)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -996,18 +897,14 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 			disconnectErr <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	closeServer()
 
 	select {
 	case got := <-disconnectErr:
-		if got == nil {
-			t.Error("want non-nil error on max retries exhausted, got nil")
-		}
+		assert.Error(t, got, "want non-nil error on max retries exhausted")
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -1024,9 +921,7 @@ func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 		client.WithHeartbeat(50*time.Millisecond, 150*time.Millisecond, 5*time.Second),
 		client.WithOnDisconnect(func(err error) {}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Close the server — reconnect dials get connection-refused instantly.
@@ -1054,9 +949,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	kickConnection(t, "close-during-backoff")
 
@@ -1107,9 +1000,7 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Drop the connection.
@@ -1130,14 +1021,10 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	}
 
 	// Verify message delivery works after restore.
-	if err := c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}); err != nil {
-		t.Fatalf("Send after restore: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}), "Send after restore")
 	select {
 	case f := <-received:
-		if f.Event != "post-restore" {
-			t.Fatalf("want event %q, got %q", "post-restore", f.Event)
-		}
+		require.Equal(t, "post-restore", f.Event)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for echo after restore")
 	}
@@ -1158,26 +1045,21 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Round-trip a frame to prove all pumps are fully operational.
 	// If onTransportRestore were incorrectly fired, it would have
 	// happened during or immediately after Dial()/pump startup.
-	if err := c.Send(wspulse.Frame{Event: "probe"}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "probe"}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for probe echo")
 	}
 
-	if count := restoreCount.Load(); count != 0 {
-		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
-	}
+	assert.Equal(t, int32(0), restoreCount.Load(),
+		"onTransportRestore should not fire on initial connect")
 }
 
 func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
@@ -1195,9 +1077,7 @@ func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 			disconnectErr <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Shut down the server so all reconnect dials fail.
@@ -1206,16 +1086,13 @@ func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	// Wait for onDisconnect with ErrRetriesExhausted.
 	select {
 	case got := <-disconnectErr:
-		if !errors.Is(got, client.ErrRetriesExhausted) {
-			t.Errorf("want ErrRetriesExhausted, got %v", got)
-		}
+		assert.ErrorIs(t, got, client.ErrRetriesExhausted)
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
 
-	if count := restoreCount.Load(); count != 0 {
-		t.Errorf("onTransportRestore fired %d times, want 0", count)
-	}
+	assert.Equal(t, int32(0), restoreCount.Load(),
+		"onTransportRestore should not fire on failed reconnect")
 }
 
 func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
@@ -1229,21 +1106,15 @@ func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 			disconnected <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// The client should detect the missing Pong within pongWait (300ms).
 	// Allow generous headroom for CI.
 	select {
 	case got := <-disconnected:
-		if got == nil {
-			t.Error("want non-nil error (ErrConnectionLost) on pong timeout, got nil")
-		}
-		if !errors.Is(got, client.ErrConnectionLost) {
-			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
-		}
+		assert.Error(t, got, "want non-nil error (ErrConnectionLost) on pong timeout")
+		assert.ErrorIs(t, got, client.ErrConnectionLost)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect after pong timeout")
 	}
@@ -1278,15 +1149,11 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
@@ -1326,7 +1193,6 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 
 	// Close() blocks until all goroutines exit and callbacks complete.
 	// No sleep needed — check immediately after Close + onDisconnect sync.
-	if count := disconnectCount.Load(); count != 1 {
-		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
-	}
+	assert.Equal(t, int32(1), disconnectCount.Load(),
+		"onDisconnect should fire exactly once")
 }

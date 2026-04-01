@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"go.uber.org/goleak"
 )
 
@@ -131,14 +133,11 @@ func controlPost(t *testing.T, path string) controlResponse {
 	t.Helper()
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	resp, err := httpClient.Post(controlURL(path), "", nil) //nolint:noctx
-	if err != nil {
-		t.Fatalf("control POST %s failed: %v", path, err)
-	}
+	require.NoError(t, err, "control POST %s failed", path)
 	defer resp.Body.Close()
 	var cr controlResponse
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-		t.Fatalf("control POST %s: decode response: %v", path, err)
-	}
+	err = json.NewDecoder(resp.Body).Decode(&cr)
+	require.NoError(t, err, "control POST %s: decode response", path)
 	return cr
 }
 
@@ -147,9 +146,7 @@ func controlGet(t *testing.T, path string) int {
 	t.Helper()
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	resp, err := httpClient.Get(controlURL(path)) //nolint:noctx
-	if err != nil {
-		t.Fatalf("control GET %s failed: %v", path, err)
-	}
+	require.NoError(t, err, "control GET %s failed", path)
 	defer resp.Body.Close()
 	return resp.StatusCode
 }
@@ -176,9 +173,8 @@ func kickConnection(t *testing.T, id string) {
 func shutdownServer(t *testing.T) {
 	t.Helper()
 	cr := controlPost(t, "/shutdown")
-	if !cr.OK && cr.Error != "already shut down" {
-		t.Fatalf("shutdown failed: %s", cr.Error)
-	}
+	require.True(t, cr.OK || cr.Error == "already shut down",
+		"shutdown failed: %s", cr.Error)
 }
 
 // restartServer restarts the shared testserver's WebSocket listener and waits
@@ -186,9 +182,7 @@ func shutdownServer(t *testing.T) {
 func restartServer(t *testing.T) {
 	t.Helper()
 	cr := controlPost(t, "/restart")
-	if !cr.OK {
-		t.Fatalf("restart failed: %s", cr.Error)
-	}
+	require.True(t, cr.OK, "restart failed: %s", cr.Error)
 	// Wait for health endpoint.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
