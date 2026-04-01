@@ -395,11 +395,8 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 
 // normalizeScheme converts http/https URL schemes to their WebSocket
 // equivalents (http → ws, https → wss). All other URLs are returned
-// unchanged — the underlying WebSocket dialer (gorilla/websocket)
-// already validates schemes at dial time, so we intentionally avoid
-// duplicating that check here. Unlike client-swift, where
-// URLSessionWebSocketTask raises an uncatchable NSException for
-// non-ws/wss schemes, gorilla/websocket returns a normal error.
+// unchanged — gorilla/websocket already validates schemes at dial
+// time and returns a catchable error, so we avoid duplicating that.
 func normalizeScheme(rawURL string) string {
 	if len(rawURL) < 8 {
 		return rawURL
