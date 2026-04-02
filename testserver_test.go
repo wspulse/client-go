@@ -163,7 +163,7 @@ func kickConnection(t *testing.T, id string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("kick %q: server did not register connection within 2s (last error: %s)", id, cr.Error)
+			require.Failf(t, "kick timed out", "%q: server did not register connection within 2s (last error: %s)", id, cr.Error)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -190,7 +190,7 @@ func restartServer(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("testserver did not become healthy after restart within 5s")
+			require.Fail(t, "testserver did not become healthy after restart within 5s")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
