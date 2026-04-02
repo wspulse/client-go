@@ -67,9 +67,15 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 	copy(copied, data)
 	select {
 	case m.writeCh <- writeCall{messageType: messageType, data: copied}:
+		return nil
+	case <-m.closeCh:
+		return &net.OpError{Op: "write", Err: net.ErrClosed}
 	default:
+		// Channel full — drop silently like a real transport under backpressure.
+		// This is intentional: backpressure tests verify client.Send returns
+		// ErrSendBufferFull, not transport-level blocking.
+		return nil
 	}
-	return nil
 }
 
 func (m *mockTransport) SetReadLimit(limit int64) {

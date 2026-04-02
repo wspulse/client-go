@@ -12,6 +12,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/wspulse/client-go"
 	wspulse "github.com/wspulse/core"
 )
@@ -805,7 +807,8 @@ func TestComponent_AutoReconnect_MultipleRapidCycles(t *testing.T) {
 			t.Fatalf("cycle %d: timed out waiting for dial", i)
 		}
 
-		// Give readPump/writePump time to start on the new transport.
+		// After dialCalled fires, pumps start asynchronously.
+		// Brief yield is sufficient in mock transport (no real TCP).
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -1062,9 +1065,7 @@ func TestComponent_Send_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 			break
 		}
 	}
-	if !sawFull {
-		t.Log("ErrSendBufferFull was never returned — writePump drained fast enough or connection died")
-	}
+	require.True(t, sawFull, "ErrSendBufferFull was never returned in 1000 sends")
 }
 
 func TestComponent_Send_CustomBufferSize_Applied(t *testing.T) {
@@ -1590,9 +1591,7 @@ func TestComponent_NormalCloseFrame(t *testing.T) {
 
 	_ = c.Close()
 
-	// Drain all writes and look for the close frame.
-	// Give a brief moment for writePump to flush.
-	time.Sleep(10 * time.Millisecond)
+	// Close() blocks until writePump exits — drain immediately.
 	writes := mt.DrainWrites()
 
 	foundClose := false
