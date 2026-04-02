@@ -23,8 +23,6 @@ func TestSend_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	fc := newFakeClock()
 	md := newMockDialer(mockDialResult{transport: mt})
 
-	// Use a small send buffer but do NOT read from writeCh,
-	// so the client's send channel fills up.
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
 		client.WithClock(fc),
@@ -35,12 +33,13 @@ func TestSend_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	// The writePump will drain send -> writeCh (cap 256).
-	// With a 4-frame send buffer, we need to fill send + writeCh.
-	// The mock writeCh has capacity 256, and writePump drains send into writes.
-	// We need enough frames to overflow: writeCh(256) + send(4) + 1 = 261+.
+	// Block writes at the transport level so writePump stalls.
+	// This guarantees c.send (cap 4) fills up deterministically.
+	unblock := mt.BlockWrites()
+	t.Cleanup(unblock)
+
 	sawFull := false
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 100; i++ {
 		err := c.Send(wspulse.Frame{Event: "flood", Payload: []byte(`"x"`)})
 		if errors.Is(err, wspulse.ErrSendBufferFull) {
 			sawFull = true
@@ -50,7 +49,7 @@ func TestSend_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, sawFull, "ErrSendBufferFull was never returned in 1000 sends")
+	require.True(t, sawFull, "ErrSendBufferFull was never returned")
 }
 
 func TestSend_CustomBufferSize_Applied(t *testing.T) {

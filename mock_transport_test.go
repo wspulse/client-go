@@ -20,6 +20,7 @@ type mockTransport struct {
 	writeCh   chan writeCall
 	closeCh   chan struct{}
 	closeOnce sync.Once
+	blockCh   chan struct{} // when non-nil, WriteMessage blocks until closeCh
 
 	mu          sync.Mutex
 	readLimit   int64
@@ -61,7 +62,19 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 		m.mu.Unlock()
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
 	}
+	blockCh := m.blockCh
 	m.mu.Unlock()
+
+	// When blockCh is set, block until the transport is closed.
+	// This lets tests deterministically stall writePump to fill c.send.
+	if blockCh != nil {
+		select {
+		case <-blockCh:
+			return &net.OpError{Op: "write", Err: net.ErrClosed}
+		case <-m.closeCh:
+			return &net.OpError{Op: "write", Err: net.ErrClosed}
+		}
+	}
 
 	copied := make([]byte, len(data))
 	copy(copied, data)
@@ -71,9 +84,7 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 	case <-m.closeCh:
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
 	default:
-		// Channel full — drop silently like a real transport under backpressure.
-		// This is intentional: backpressure tests verify client.Send returns
-		// ErrSendBufferFull, not transport-level blocking.
+		// Channel full — drop silently. Backpressure tests use blockCh instead.
 		return nil
 	}
 }
@@ -101,6 +112,18 @@ func (m *mockTransport) Close() error {
 		close(m.closeCh)
 	})
 	return nil
+}
+
+// BlockWrites causes WriteMessage to block until unblock is called or the
+// transport is closed. Used by backpressure tests to deterministically stall
+// writePump. The returned function unblocks all pending and future writes.
+func (m *mockTransport) BlockWrites() (unblock func()) {
+	ch := make(chan struct{})
+	m.mu.Lock()
+	m.blockCh = ch
+	m.mu.Unlock()
+	once := sync.Once{}
+	return func() { once.Do(func() { close(ch) }) }
 }
 
 // InjectMessage simulates a message from the server.
