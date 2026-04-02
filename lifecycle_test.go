@@ -18,6 +18,8 @@ func TestClose_WaitsForDisconnectCallback(t *testing.T) {
 	var callbackDone atomic.Bool
 	c, _, _ := dialWithMock(t,
 		client.WithOnDisconnect(func(err error) {
+			// Intentional delay: simulates a slow callback to verify
+			// that Close() blocks until the callback completes.
 			time.Sleep(200 * time.Millisecond)
 			callbackDone.Store(true)
 		}),
@@ -33,6 +35,8 @@ func TestClose_WaitsForTransportDropCallback(t *testing.T) {
 	var callbackDone atomic.Bool
 	c, _, _ := dialWithMock(t,
 		client.WithOnTransportDrop(func(err error) {
+			// Intentional delay: simulates a slow callback to verify
+			// that Close() blocks until the callback completes.
 			time.Sleep(200 * time.Millisecond)
 			callbackDone.Store(true)
 		}),
@@ -49,6 +53,8 @@ func TestClose_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 	c, _, _ := dialWithMock(t,
 		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnDisconnect(func(err error) {
+			// Intentional delay: simulates a slow callback to verify
+			// that Close() blocks until the callback completes.
 			time.Sleep(200 * time.Millisecond)
 			callbackDone.Store(true)
 		}),
@@ -188,17 +194,22 @@ func TestConcurrentSendAndClose_NoRace(t *testing.T) {
 	c, _, _ := dialWithMock(t)
 
 	const senders = 8
+	started := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < senders; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			started <- struct{}{}
 			for j := 0; j < 50; j++ {
 				_ = c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`"x"`)})
 			}
 		}()
 	}
-	time.Sleep(10 * time.Millisecond)
+	// Wait for all sender goroutines to start before closing.
+	for i := 0; i < senders; i++ {
+		<-started
+	}
 	_ = c.Close()
 	wg.Wait()
 }
@@ -281,8 +292,12 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for onDisconnect")
 	}
 
-	// Give a short settling time.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for Done() to close, which confirms all teardown is complete.
+	select {
+	case <-c.Done():
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Done() after concurrent close/drop")
+	}
 
 	if count := disconnectCount.Load(); count != 1 {
 		t.Errorf("onDisconnect fired %d times, want exactly 1", count)

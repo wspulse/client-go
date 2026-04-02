@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	wspulse "github.com/wspulse/core"
 
 	"github.com/wspulse/client-go"
@@ -69,9 +71,11 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Fire the backoff timer.
 	deadline := time.Now().Add(time.Second)
-	for fc.TimerCount() == 0 && time.Now().Before(deadline) {
+	initialCount := fc.TimerCount()
+	for fc.TimerCount() == initialCount && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
+	require.Greater(t, fc.TimerCount(), initialCount, "no backoff timer was registered")
 	fc.mu.Lock()
 	fc.timers[len(fc.timers)-1].timer.Reset(0)
 	fc.mu.Unlock()
@@ -242,6 +246,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		for fc.TimerCount() <= prevTimerCount && time.Now().Before(dl) {
 			time.Sleep(time.Millisecond)
 		}
+		require.Greater(t, fc.TimerCount(), prevTimerCount, "no backoff timer was registered for cycle %d", i)
 		fc.mu.Lock()
 		fc.timers[len(fc.timers)-1].timer.Reset(0)
 		fc.mu.Unlock()
@@ -254,8 +259,11 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		}
 
 		// After dialCalled fires, pumps start asynchronously.
-		// Brief yield is sufficient in mock transport (no real TCP).
-		time.Sleep(10 * time.Millisecond)
+		// Poll until restore callback fires, confirming pumps are running.
+		restoreDl := time.Now().Add(time.Second)
+		for restoreCount.Load() < int32(i+1) && time.Now().Before(restoreDl) {
+			time.Sleep(time.Millisecond)
+		}
 	}
 
 	// After cycles reconnects, verify echo on the final transport.
