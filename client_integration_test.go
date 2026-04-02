@@ -156,7 +156,7 @@ func TestDial_SendAndReceive(t *testing.T) {
 	case f := <-received:
 		assert.Equal(t, "echo", f.Event)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 }
 
@@ -185,7 +185,7 @@ func TestClient_Done_ClosedAfterClose(t *testing.T) {
 	select {
 	case <-c.Done():
 	case <-time.After(time.Second):
-		t.Fatal("Done() channel not closed after Close()")
+		require.Fail(t, "Done() channel not closed after Close()")
 	}
 }
 
@@ -225,7 +225,7 @@ func TestClient_OnDisconnect_CallbackFires(t *testing.T) {
 	select {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for OnDisconnect callback")
+		require.Fail(t, "timed out waiting for OnDisconnect callback")
 	}
 }
 
@@ -267,7 +267,7 @@ func TestClient_ReadPump_PanicRecovery(t *testing.T) {
 	select {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: readPump panic was not recovered")
+		require.Fail(t, "timed out: readPump panic was not recovered")
 	}
 }
 
@@ -287,7 +287,7 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 	select {
 	case <-received:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	closeServer()
@@ -295,7 +295,7 @@ func TestClient_Done_FiresOnServerDrop(t *testing.T) {
 	select {
 	case <-c.Done():
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: Done() did not fire after server disconnect")
+		require.Fail(t, "timed out: Done() did not fire after server disconnect")
 	}
 
 	require.ErrorIs(t, c.Send(wspulse.Frame{Event: "msg"}), wspulse.ErrConnectionClosed)
@@ -332,7 +332,7 @@ func TestClient_WithDialHeaders(t *testing.T) {
 	case got := <-headerReceived:
 		assert.Equal(t, "test-token-123", got, "header value mismatch")
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for header check")
+		require.Fail(t, "timed out waiting for header check")
 	}
 }
 
@@ -362,7 +362,7 @@ func TestClient_Close_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	_ = c.Close()
@@ -396,7 +396,7 @@ func TestClient_OnTransportDrop_FiresOnReconnect(t *testing.T) {
 	select {
 	case <-transportDropped:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for OnTransportDrop")
+		require.Fail(t, "timed out waiting for OnTransportDrop")
 	}
 }
 
@@ -426,7 +426,7 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	_ = c.Close()
@@ -434,7 +434,7 @@ func TestClient_AutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 	select {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: onDisconnect did not fire after Close() with auto-reconnect")
+		require.Fail(t, "timed out: onDisconnect did not fire after Close() with auto-reconnect")
 	}
 }
 
@@ -483,13 +483,13 @@ func TestClient_WithMaxMessageSize_OversizedMessage(t *testing.T) {
 	select {
 	case <-connected:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for connect")
+		require.Fail(t, "timed out waiting for connect")
 	}
 
 	select {
 	case <-dropped:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: transport should have dropped due to oversized message")
+		require.Fail(t, "timed out: transport should have dropped due to oversized message")
 	}
 }
 
@@ -599,7 +599,7 @@ func TestClient_ReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	case f := <-received:
 		require.Equal(t, "valid-frame", f.Event)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for valid frame")
+		require.Fail(t, "timed out waiting for valid frame")
 	}
 }
 
@@ -672,12 +672,12 @@ func TestClient_Close_WaitsForGoroutines(t *testing.T) {
 		select {
 		case <-closeDone:
 		case <-time.After(3 * time.Second):
-			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+			require.Failf(t, "timeout", "Client #%d: Close() did not return within timeout", i)
 		}
 		select {
 		case <-c.Done():
 		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+			require.Failf(t, "timeout", "Client #%d: Done() not closed after Close()", i)
 		}
 	}
 }
@@ -706,12 +706,12 @@ func TestClient_Close_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		select {
 		case <-closeDone:
 		case <-time.After(3 * time.Second):
-			t.Fatalf("Client #%d: Close() did not return within timeout", i)
+			require.Failf(t, "timeout", "Client #%d: Close() did not return within timeout", i)
 		}
 		select {
 		case <-c.Done():
 		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Done() not closed after Close()", i)
+			require.Failf(t, "timeout", "Client #%d: Done() not closed after Close()", i)
 		}
 	}
 }
@@ -767,7 +767,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	case f := <-received:
 		require.Equal(t, "before", f.Event)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo before kick")
+		require.Fail(t, "timed out waiting for echo before kick")
 	}
 
 	// Drop the connection.
@@ -777,7 +777,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	select {
 	case <-restored:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onTransportRestore")
+		require.Fail(t, "timed out waiting for onTransportRestore")
 	}
 
 	// Verify post-reconnect message delivery.
@@ -786,7 +786,7 @@ func TestClient_AutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	case f := <-received:
 		require.Equal(t, "after", f.Event)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo after reconnect")
+		require.Fail(t, "timed out waiting for echo after reconnect")
 	}
 }
 
@@ -806,7 +806,7 @@ func TestClient_OnDisconnect_NilOnNormalClose(t *testing.T) {
 	case got := <-disconnectErr:
 		assert.NoError(t, got, "want nil error on normal Close()")
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 }
 
@@ -835,7 +835,7 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	closeServer()
@@ -844,7 +844,7 @@ func TestClient_OnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	case got := <-disconnectErr:
 		assert.Error(t, got, "want non-nil error on server drop")
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 }
 
@@ -873,7 +873,7 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	closeServer()
@@ -882,7 +882,7 @@ func TestClient_OnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	case got := <-disconnectErr:
 		assert.ErrorIs(t, got, client.ErrConnectionLost)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 }
 
@@ -906,7 +906,7 @@ func TestClient_OnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	case got := <-disconnectErr:
 		assert.Error(t, got, "want non-nil error on max retries exhausted")
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 }
 
@@ -932,7 +932,7 @@ func TestClient_AutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	select {
 	case <-c.Done():
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: Done() did not close after max retries exhausted")
+		require.Fail(t, "timed out: Done() did not close after max retries exhausted")
 	}
 }
 
@@ -956,7 +956,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	select {
 	case <-transportDropped:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for transport drop")
+		require.Fail(t, "timed out waiting for transport drop")
 	}
 
 	// Close() signals the reconnect loop so that when it reaches
@@ -970,7 +970,7 @@ func TestClient_AutoReconnect_CloseDuringBackoff(t *testing.T) {
 	select {
 	case <-closeDone:
 	case <-time.After(3 * time.Second):
-		t.Fatal("Close() hung during backoff — timer not stopped")
+		require.Fail(t, "Close() hung during backoff — timer not stopped")
 	}
 }
 
@@ -1010,14 +1010,14 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	select {
 	case <-transportDropped:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onTransportDrop")
+		require.Fail(t, "timed out waiting for onTransportDrop")
 	}
 
 	// Verify onTransportRestore fires after reconnect.
 	select {
 	case <-transportRestored:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onTransportRestore")
+		require.Fail(t, "timed out waiting for onTransportRestore")
 	}
 
 	// Verify message delivery works after restore.
@@ -1026,7 +1026,7 @@ func TestClient_OnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	case f := <-received:
 		require.Equal(t, "post-restore", f.Event)
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo after restore")
+		require.Fail(t, "timed out waiting for echo after restore")
 	}
 }
 
@@ -1055,7 +1055,7 @@ func TestClient_OnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	select {
 	case <-received:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for probe echo")
+		require.Fail(t, "timed out waiting for probe echo")
 	}
 
 	assert.Equal(t, int32(0), restoreCount.Load(),
@@ -1088,7 +1088,7 @@ func TestClient_OnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	case got := <-disconnectErr:
 		assert.ErrorIs(t, got, client.ErrRetriesExhausted)
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 
 	assert.Equal(t, int32(0), restoreCount.Load(),
@@ -1116,14 +1116,14 @@ func TestClient_HeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 		assert.Error(t, got, "want non-nil error (ErrConnectionLost) on pong timeout")
 		assert.ErrorIs(t, got, client.ErrConnectionLost)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect after pong timeout")
+		require.Fail(t, "timed out waiting for onDisconnect after pong timeout")
 	}
 
 	// Done() should also be closed.
 	select {
 	case <-c.Done():
 	case <-time.After(time.Second):
-		t.Fatal("Done() not closed after pong timeout disconnect")
+		require.Fail(t, "Done() not closed after pong timeout disconnect")
 	}
 }
 
@@ -1157,7 +1157,7 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	select {
 	case <-echoReceived:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for echo")
+		require.Fail(t, "timed out waiting for echo")
 	}
 
 	// Simultaneously close the client and drop the server connection.
@@ -1181,14 +1181,14 @@ func TestClient_ConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testi
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for client and server close to complete")
+		require.Fail(t, "timed out waiting for client and server close to complete")
 	}
 
 	// Wait for onDisconnect to fire.
 	select {
 	case <-disconnectDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
+		require.Fail(t, "timed out waiting for onDisconnect")
 	}
 
 	// Close() blocks until all goroutines exit and callbacks complete.
