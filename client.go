@@ -51,7 +51,7 @@ type internalClient struct {
 	url                string
 	config             *clientConfig
 	logger             *zap.Logger
-	connection         *websocket.Conn
+	connection         wspulse.Transport
 	send               chan []byte
 	done               chan struct{}  // closed via once.Do on permanent disconnect
 	quit               chan struct{}  // closed together with done via once.Do
@@ -178,12 +178,12 @@ func (c *internalClient) Done() <-chan struct{} { return c.done }
 // ── internal ──────────────────────────────────────────────────────────────────
 
 func (c *internalClient) dialOnce() error {
-	wsConnection, _, err := websocket.DefaultDialer.Dial(c.url, c.config.dialHeaders)
+	transport, err := c.config.dialer.Dial(c.url, c.config.dialHeaders)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	c.connection = wsConnection
+	c.connection = transport
 	c.mu.Unlock()
 	return nil
 }

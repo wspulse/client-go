@@ -43,6 +43,7 @@ type clientConfig struct {
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
 	sendBufferSize     int   // outbound channel capacity (number of frames)
 	clock              clock
+	dialer             dialer
 }
 
 func defaultClientConfig() *clientConfig {
@@ -59,6 +60,7 @@ func defaultClientConfig() *clientConfig {
 		maxMessageSize: 1 << 20, // 1 MiB
 		sendBufferSize: 256,
 		clock:          realClock{},
+		dialer:         gorillaDialer{},
 	}
 }
 

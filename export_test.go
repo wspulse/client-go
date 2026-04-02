@@ -20,3 +20,14 @@ func WithClock(c Clock) ClientOption {
 	}
 	return func(cfg *clientConfig) { cfg.clock = c }
 }
+
+// Dialer exports the internal dialer interface for testing only.
+type Dialer = dialer
+
+// WithDialer returns a ClientOption that sets the dialer. Test-only.
+func WithDialer(d Dialer) ClientOption {
+	if d == nil {
+		panic("wspulse: WithDialer: dialer must not be nil")
+	}
+	return func(cfg *clientConfig) { cfg.dialer = d }
+}
