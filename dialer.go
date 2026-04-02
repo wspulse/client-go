@@ -17,6 +17,9 @@ type dialer interface {
 type gorillaDialer struct{}
 
 func (gorillaDialer) Dial(url string, requestHeader http.Header) (wspulse.Transport, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(url, requestHeader)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, requestHeader)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	return conn, err
 }
