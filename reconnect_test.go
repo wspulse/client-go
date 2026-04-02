@@ -236,6 +236,13 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
+	// Drain the initial dial signal from client.Dial().
+	select {
+	case <-md.dialCalled:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining initial dialCalled")
+	}
+
 	for i := 0; i < cycles; i++ {
 		// Kill the current transport.
 		transports[i].InjectError(&net.OpError{Op: "read", Err: errors.New("reset")})
