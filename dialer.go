@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+
 	wspulse "github.com/wspulse/core"
 )
 

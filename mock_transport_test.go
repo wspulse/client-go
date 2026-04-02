@@ -155,7 +155,7 @@ func newMockDialer(results ...mockDialResult) *mockDialer {
 func (d *mockDialer) Dial(url string, header http.Header) (wspulse.Transport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.callCount >= len(results(d)) {
+	if d.callCount >= len(d.results) {
 		return nil, errors.New("mockDialer: no more transports configured")
 	}
 	r := d.results[d.callCount]
@@ -166,8 +166,6 @@ func (d *mockDialer) Dial(url string, header http.Header) (wspulse.Transport, er
 	}
 	return r.transport, r.err
 }
-
-func results(d *mockDialer) []mockDialResult { return d.results }
 
 // Transport returns the i-th configured transport.
 func (d *mockDialer) Transport(i int) *mockTransport {

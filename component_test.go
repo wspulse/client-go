@@ -74,26 +74,6 @@ func (fc *fakeClock) TickerCount() int {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// encodeFrame encodes a Frame using JSONCodec. Test helper.
-func encodeFrame(t *testing.T, f wspulse.Frame) []byte {
-	t.Helper()
-	data, err := wspulse.JSONCodec.Encode(f)
-	if err != nil {
-		t.Fatalf("encode frame: %v", err)
-	}
-	return data
-}
-
-// decodeFrame decodes bytes into a Frame using JSONCodec. Test helper.
-func decodeFrame(t *testing.T, data []byte) wspulse.Frame {
-	t.Helper()
-	f, err := wspulse.JSONCodec.Decode(data)
-	if err != nil {
-		t.Fatalf("decode frame: %v", err)
-	}
-	return f
-}
-
 // echoLoop reads from mt.writeCh and injects the written data back as a
 // text message, simulating an echo server. Stops when done is closed.
 func echoLoop(mt *mockTransport, done chan struct{}) {
