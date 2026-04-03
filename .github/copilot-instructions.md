@@ -14,7 +14,7 @@ wspulse/client-go is a **WebSocket client library for Go** with automatic reconn
 ```bash
 make fmt              # format (gofmt + goimports)
 make lint             # vet + golangci-lint
-make test             # unit tests with race detector
+make test             # all tests (unit + component) with race detector
 make check            # fmt + lint + test (pre-commit gate)
 make bench            # benchmarks with memory stats
 make test-cover       # all tests with coverage report → coverage.html

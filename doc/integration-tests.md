@@ -16,7 +16,7 @@ deterministic and run with `make check`.
 | 1   | Connect, send, echo, close clean                                    | `TestSendAndReceive`                                         | basic_test.go       |
 | 2   | Server drops, onTransportDrop + onDisconnect (no reconnect)         | `TestOnDisconnect_IsErrConnectionLostOnServerDrop`           | callback_test.go    |
 | 3   | Auto-reconnect: server drops, reconnects within maxRetries          | `TestAutoReconnect_ReconnectsAndDeliversMessages`            | reconnect_test.go   |
-| 4   | Max retries exhausted, `onDisconnect(ErrRetriesExhausted)`          | `TestAutoReconnect_MaxRetriesExhausted_ClosesDone`           | reconnect_test.go   |
+| 4   | Max retries exhausted, `Done()` closes                              | `TestAutoReconnect_MaxRetriesExhausted_ClosesDone`           | reconnect_test.go   |
 | 5   | `Close()` during reconnect, loop stops, `onDisconnect(nil)`         | `TestAutoReconnect_CloseDuringBackoff`                       | reconnect_test.go   |
 | 6   | `Send()` on closed client, `ErrConnectionClosed`                    | `TestSend_AfterClose_ReturnsErrConnectionClosed`             | basic_test.go       |
 | 7   | Heartbeat pong timeout, `ErrConnectionLost`                         | `TestHeartbeatPongTimeout_DisconnectsClient`                 | misc_test.go        |
@@ -58,7 +58,6 @@ deterministic and run with `make check`.
 | `TestClose_WaitsForDisconnectCallback_AutoReconnect`       | Same guarantee with autoReconnect enabled                     |
 | `TestClose_WaitsForGoroutines`                             | `Close()` joins all internal goroutines                       |
 | `TestClose_WaitsForGoroutines_AutoReconnect`               | Same guarantee with autoReconnect enabled                     |
-| `TestConcurrentSendAndClose_NoRace`                        | No data race under concurrent Send/Close                      |
 
 ### reconnect_test.go
 
@@ -83,4 +82,4 @@ deterministic and run with `make check`.
 | `TestWithHeartbeat_SendsPings`                     | Ping messages are sent at configured interval                 |
 | `TestWithLogger_ValidLogger_Applied`               | `WithLogger` option is accepted                               |
 
-**Total: 37 component tests** (9 contract scenarios + 28 additional).
+**Total: 41 component tests** (9 contract scenarios + 32 additional).
