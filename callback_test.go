@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	wspulse "github.com/wspulse/core"
 
 	"github.com/wspulse/client-go"
@@ -44,9 +47,7 @@ func TestOnDisconnect_NilOnNormalClose(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if got != nil {
-			t.Errorf("want nil error on normal Close(), got %v", got)
-		}
+		assert.NoError(t, got, "want nil error on normal Close()")
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -67,9 +68,7 @@ func TestOnDisconnect_NonNilOnServerDrop(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if got == nil {
-			t.Error("want non-nil error on server drop, got nil")
-		}
+		assert.Error(t, got, "want non-nil error on server drop")
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -90,9 +89,7 @@ func TestOnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if !errors.Is(got, client.ErrConnectionLost) {
-			t.Errorf("want errors.Is(err, ErrConnectionLost), got %v", got)
-		}
+		assert.ErrorIs(t, got, client.ErrConnectionLost)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -117,9 +114,7 @@ func TestOnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 			disconnectErr <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Kill the first transport.
@@ -131,9 +126,7 @@ func TestOnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 
 	select {
 	case got := <-disconnectErr:
-		if got == nil {
-			t.Error("want non-nil error on max retries exhausted, got nil")
-		}
+		assert.Error(t, got, "want non-nil error on max retries exhausted")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
@@ -164,9 +157,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	// Start echo loop.
 	echoDone := make(chan struct{})
@@ -174,9 +165,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	// Confirm connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(time.Second):
@@ -189,9 +178,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	dc := disconnectCount
 	mu.Unlock()
 
-	if dc != 1 {
-		t.Errorf("onDisconnect fired %d times, want exactly 1", dc)
-	}
+	assert.Equal(t, 1, dc, "onDisconnect fired count")
 }
 
 func TestOnTransportDrop_FiresOnReconnect(t *testing.T) {
@@ -216,9 +203,7 @@ func TestOnTransportDrop_FiresOnReconnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Kill the first transport.
@@ -267,9 +252,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Kill the first transport.
@@ -287,9 +270,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	for fc.TimerCount() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if fc.TimerCount() == 0 {
-		t.Fatal("no backoff timer created")
-	}
+	require.Greater(t, fc.TimerCount(), 0, "no backoff timer created")
 	fc.mu.Lock()
 	fc.timers[len(fc.timers)-1].timer.Reset(0)
 	fc.mu.Unlock()
@@ -307,14 +288,10 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	go echoLoop(mt2, echoDone)
 
 	// Verify message delivery works after restore.
-	if err := c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}); err != nil {
-		t.Fatalf("Send after restore: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}), "Send after restore")
 	select {
 	case f := <-received:
-		if f.Event != "post-restore" {
-			t.Fatalf("want event %q, got %q", "post-restore", f.Event)
-		}
+		assert.Equal(t, "post-restore", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for echo after restore")
 	}
@@ -344,18 +321,14 @@ func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	// Round-trip a frame to prove all pumps are fully operational.
-	if err := c.Send(wspulse.Frame{Event: "probe"}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "probe"}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for probe echo")
 	}
 
-	if count := restoreCount.Load(); count != 0 {
-		t.Errorf("onTransportRestore fired %d times on initial connect, want 0", count)
-	}
+	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on initial connect")
 }
 
 func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
@@ -382,9 +355,7 @@ func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 			disconnectErr <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Kill the first transport.
@@ -397,14 +368,10 @@ func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	// Wait for onDisconnect with ErrRetriesExhausted.
 	select {
 	case got := <-disconnectErr:
-		if !errors.Is(got, client.ErrRetriesExhausted) {
-			t.Errorf("want ErrRetriesExhausted, got %v", got)
-		}
+		assert.ErrorIs(t, got, client.ErrRetriesExhausted)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for onDisconnect")
 	}
 
-	if count := restoreCount.Load(); count != 0 {
-		t.Errorf("onTransportRestore fired %d times, want 0", count)
-	}
+	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on failed reconnect")
 }

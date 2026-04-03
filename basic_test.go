@@ -2,9 +2,11 @@ package client_test
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	wspulse "github.com/wspulse/core"
 
@@ -25,15 +27,11 @@ func TestSendAndReceive(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	frame := wspulse.Frame{Event: "echo", Payload: []byte(`"hello"`)}
-	if err := c.Send(frame); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(frame), "Send failed")
 
 	select {
 	case f := <-received:
-		if f.Event != "echo" {
-			t.Errorf("Event: want %q, got %q", "echo", f.Event)
-		}
+		assert.Equal(t, "echo", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for echo")
 	}
@@ -51,9 +49,7 @@ func TestSend_AfterClose_ReturnsErrConnectionClosed(t *testing.T) {
 	c, _, _ := dialWithMock(t)
 	_ = c.Close()
 	sendErr := c.Send(wspulse.Frame{Event: "msg"})
-	if !errors.Is(sendErr, wspulse.ErrConnectionClosed) {
-		t.Errorf("want ErrConnectionClosed, got %v", sendErr)
-	}
+	assert.ErrorIs(t, sendErr, wspulse.ErrConnectionClosed)
 }
 
 func TestDone_ClosedAfterClose(t *testing.T) {
@@ -73,29 +69,19 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	frame := wspulse.Frame{Event: "test", Payload: []byte(`"data"`)}
-	if err := c.Send(frame); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(frame), "Send failed")
 
 	w, ok := mt.WaitWrite(time.Second)
-	if !ok {
-		t.Fatal("timed out waiting for write")
-	}
-	if w.messageType != 1 { // TextMessage (JSONCodec)
-		t.Errorf("messageType: want 1, got %d", w.messageType)
-	}
+	require.True(t, ok, "timed out waiting for write")
+	assert.Equal(t, 1, w.messageType, "messageType") // TextMessage (JSONCodec)
 
 	// Decode the written data and verify.
 	var wireFrame struct {
 		Event   string          `json:"event"`
 		Payload json.RawMessage `json:"payload"`
 	}
-	if err := json.Unmarshal(w.data, &wireFrame); err != nil {
-		t.Fatalf("unmarshal written data: %v", err)
-	}
-	if wireFrame.Event != "test" {
-		t.Errorf("event: want %q, got %q", "test", wireFrame.Event)
-	}
+	require.NoError(t, json.Unmarshal(w.data, &wireFrame), "unmarshal written data")
+	assert.Equal(t, "test", wireFrame.Event)
 }
 
 func TestNormalCloseFrame(t *testing.T) {
@@ -116,7 +102,5 @@ func TestNormalCloseFrame(t *testing.T) {
 			break
 		}
 	}
-	if !foundClose {
-		t.Error("Close() did not produce a WebSocket close frame (messageType=8)")
-	}
+	assert.True(t, foundClose, "Close() did not produce a WebSocket close frame (messageType=8)")
 }

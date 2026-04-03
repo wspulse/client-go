@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	wspulse "github.com/wspulse/core"
@@ -43,9 +44,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Start echo loop on mt1.
@@ -53,14 +52,10 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	go echoLoop(mt1, echo1Done)
 
 	// Verify initial connectivity.
-	if err := c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send before kick: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
 	select {
 	case f := <-received:
-		if f.Event != "before" {
-			t.Fatalf("want event %q, got %q", "before", f.Event)
-		}
+		assert.Equal(t, "before", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for echo before kick")
 	}
@@ -93,14 +88,10 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	go echoLoop(mt2, echo2Done)
 
 	// Verify post-reconnect message delivery.
-	if err := c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}); err != nil {
-		t.Fatalf("Send after reconnect: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
 	select {
 	case f := <-received:
-		if f.Event != "after" {
-			t.Fatalf("want event %q, got %q", "after", f.Event)
-		}
+		assert.Equal(t, "after", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for echo after reconnect")
 	}
@@ -122,9 +113,7 @@ func TestAutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 		client.WithAutoReconnect(2, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnDisconnect(func(err error) {}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Kill the first transport.
@@ -164,9 +153,7 @@ func TestAutoReconnect_CloseDuringBackoff(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 
 	// Kill the first transport.
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
@@ -232,9 +219,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Drain the initial dial signal from client.Dial().
@@ -279,24 +264,16 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	defer close(echoDone)
 	go echoLoop(transports[cycles], echoDone)
 
-	if err := c.Send(wspulse.Frame{Event: "final", Payload: []byte(`"ok"`)}); err != nil {
-		t.Fatalf("Send after cycles: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "final", Payload: []byte(`"ok"`)}), "Send after cycles")
 	select {
 	case f := <-received:
-		if f.Event != "final" {
-			t.Fatalf("want event %q, got %q", "final", f.Event)
-		}
+		assert.Equal(t, "final", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for echo after rapid cycles")
 	}
 
-	if dc := dropCount.Load(); dc < int32(cycles) {
-		t.Errorf("transport drop count = %d, want >= %d", dc, cycles)
-	}
-	if rc := restoreCount.Load(); rc < int32(cycles) {
-		t.Errorf("transport restore count = %d, want >= %d", rc, cycles)
-	}
+	assert.GreaterOrEqual(t, dropCount.Load(), int32(cycles), "transport drop count")
+	assert.GreaterOrEqual(t, restoreCount.Load(), int32(cycles), "transport restore count")
 }
 
 func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
@@ -325,9 +302,7 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(time.Second):

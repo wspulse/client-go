@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	wspulse "github.com/wspulse/core"
 
 	"github.com/wspulse/client-go"
@@ -25,9 +28,7 @@ func TestClose_WaitsForDisconnectCallback(t *testing.T) {
 		}),
 	)
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
 func TestClose_WaitsForTransportDropCallback(t *testing.T) {
@@ -42,9 +43,7 @@ func TestClose_WaitsForTransportDropCallback(t *testing.T) {
 		}),
 	)
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(), "Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
 }
 
 func TestClose_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
@@ -60,9 +59,7 @@ func TestClose_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 		}),
 	)
 	_ = c.Close()
-	if !callbackDone.Load() {
-		t.Fatal("Close() returned before onDisconnect callback finished — orphaned callback goroutine")
-	}
+	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
 func TestClose_WaitsForGoroutines(t *testing.T) {
@@ -81,9 +78,7 @@ func TestClose_WaitsForGoroutines(t *testing.T) {
 			client.WithDialer(md),
 			client.WithClock(fc),
 		)
-		if err != nil {
-			t.Fatalf("Dial #%d failed: %v", i, err)
-		}
+		require.NoError(t, err, "Dial #%d failed", i)
 		t.Cleanup(func() { _ = c.Close() })
 		entries[i] = entry{c: c, mt: mt}
 	}
@@ -124,9 +119,7 @@ func TestClose_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 			client.WithClock(fc),
 			client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		)
-		if err != nil {
-			t.Fatalf("Dial #%d failed: %v", i, err)
-		}
+		require.NoError(t, err, "Dial #%d failed", i)
 		t.Cleanup(func() { _ = c.Close() })
 		entries[i] = entry{c: c, mt: mt}
 	}
@@ -165,9 +158,7 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(time.Second):
@@ -184,9 +175,7 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 		t.Fatal("timed out: Done() did not fire after server disconnect")
 	}
 
-	if err := c.Send(wspulse.Frame{Event: "msg"}); !errors.Is(err, wspulse.ErrConnectionClosed) {
-		t.Fatalf("want ErrConnectionClosed, got %v", err)
-	}
+	assert.ErrorIs(t, c.Send(wspulse.Frame{Event: "msg"}), wspulse.ErrConnectionClosed)
 }
 
 func TestConcurrentSendAndClose_NoRace(t *testing.T) {
@@ -241,9 +230,7 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Start echo loop.
@@ -252,9 +239,7 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 	go echoLoop(mt, echoDone)
 
 	// Confirm the connection is established by round-tripping a frame.
-	if err := c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}); err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	select {
 	case <-received:
 	case <-time.After(time.Second):
@@ -299,7 +284,5 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 		t.Fatal("timed out waiting for Done() after concurrent close/drop")
 	}
 
-	if count := disconnectCount.Load(); count != 1 {
-		t.Errorf("onDisconnect fired %d times, want exactly 1", count)
-	}
+	assert.Equal(t, int32(1), disconnectCount.Load(), "onDisconnect fired count")
 }
