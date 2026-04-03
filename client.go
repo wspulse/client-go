@@ -51,7 +51,9 @@ type internalClient struct {
 	url                string
 	config             *clientConfig
 	logger             *zap.Logger
-	connection         *websocket.Conn
+	dialer             dialer
+	clock              clock
+	connection         wspulse.Transport
 	send               chan []byte
 	done               chan struct{}  // closed via once.Do on permanent disconnect
 	quit               chan struct{}  // closed together with done via once.Do
@@ -81,6 +83,8 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		url:            urlStr,
 		config:         config,
 		logger:         config.logger,
+		dialer:         config.dialer,
+		clock:          config.clock,
 		send:           make(chan []byte, config.sendBufferSize),
 		done:           make(chan struct{}),
 		quit:           make(chan struct{}),
@@ -178,12 +182,12 @@ func (c *internalClient) Done() <-chan struct{} { return c.done }
 // ── internal ──────────────────────────────────────────────────────────────────
 
 func (c *internalClient) dialOnce() error {
-	wsConnection, _, err := websocket.DefaultDialer.Dial(c.url, c.config.dialHeaders)
+	transport, err := c.dialer.Dial(c.url, c.config.dialHeaders)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	c.connection = wsConnection
+	c.connection = transport
 	c.mu.Unlock()
 	return nil
 }
@@ -250,7 +254,7 @@ func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan s
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
 
-	ticker := c.config.clock.NewTicker(pingPeriod)
+	ticker := c.clock.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = wsConnection.Close()
@@ -333,7 +337,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.Duration("delay", delay),
 		)
-		backoffTimer := c.config.clock.NewTimer(delay)
+		backoffTimer := c.clock.NewTimer(delay)
 		select {
 		case <-c.quit:
 			backoffTimer.Stop()
