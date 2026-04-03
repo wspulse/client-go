@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/zap"
-
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/zap"
 
 	wspulse "github.com/wspulse/core"
 
@@ -28,9 +29,7 @@ func TestSend_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 		client.WithClock(fc),
 		client.WithSendBufferSize(4),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Block writes at the transport level so writePump stalls.
@@ -58,9 +57,7 @@ func TestSend_CustomBufferSize_Applied(t *testing.T) {
 	c, _, _ := dialWithMock(t, client.WithSendBufferSize(bufSize))
 	t.Cleanup(func() { _ = c.Close() })
 
-	if got := client.SendBufferCap(c); got != bufSize {
-		t.Errorf("SendBufferCap = %d, want %d", got, bufSize)
-	}
+	assert.Equal(t, bufSize, client.SendBufferCap(c), "SendBufferCap")
 }
 
 func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
@@ -81,9 +78,7 @@ func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 
 	select {
 	case f := <-received:
-		if f.Event != "valid-frame" {
-			t.Fatalf("want event %q, got %q", "valid-frame", f.Event)
-		}
+		assert.Equal(t, "valid-frame", f.Event)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for valid frame")
 	}
@@ -124,15 +119,11 @@ func TestSend_EncodeError_ReturnsError(t *testing.T) {
 		client.WithClock(fc),
 		client.WithCodec(failEncodeCodecComponent{}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	err = c.Send(wspulse.Frame{Event: "msg"})
-	if err == nil {
-		t.Fatal("expected encode error, got nil")
-	}
+	require.Error(t, err, "expected encode error")
 }
 
 func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
@@ -166,9 +157,7 @@ func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 			disconnected <- err
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for at least one ping write from the heartbeat ticker.
@@ -191,9 +180,7 @@ func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 
 	select {
 	case got := <-disconnected:
-		if got == nil {
-			t.Error("want non-nil error on disconnect, got nil")
-		}
+		assert.Error(t, got, "want non-nil error on disconnect")
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for onDisconnect after simulated pong timeout")
 	}
@@ -233,18 +220,14 @@ func TestWithDialHeaders(t *testing.T) {
 		client.WithClock(fc),
 		client.WithDialHeaders(headers),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	headerMu.Lock()
 	got := capturedHeaders.Get("X-Custom-Token")
 	headerMu.Unlock()
 
-	if got != "test-token-123" {
-		t.Errorf("header value: want %q, got %q", "test-token-123", got)
-	}
+	assert.Equal(t, "test-token-123", got, "header value")
 }
 
 func TestWithMaxMessageSize(t *testing.T) {
@@ -262,9 +245,7 @@ func TestWithMaxMessageSize(t *testing.T) {
 		client.WithClock(fc),
 		client.WithMaxMessageSize(42),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Poll for readPump to call SetReadLimit.
@@ -280,9 +261,7 @@ func TestWithMaxMessageSize(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	if readLimit != 42 {
-		t.Errorf("SetReadLimit: want 42, got %d", readLimit)
-	}
+	assert.Equal(t, int64(42), readLimit, "SetReadLimit")
 }
 
 func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
@@ -306,9 +285,7 @@ func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
 			}
 		}),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Poll for readPump to call SetReadLimit.
@@ -324,9 +301,7 @@ func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	if readLimit != 10 {
-		t.Errorf("SetReadLimit: want 10, got %d", readLimit)
-	}
+	assert.Equal(t, int64(10), readLimit, "SetReadLimit")
 
 	// Simulate what the real gorilla transport would do: return an error
 	// when receiving an oversized message. The mock transport does not enforce
@@ -370,9 +345,7 @@ func TestWithHeartbeat_SendsPings(t *testing.T) {
 		// Use real clock so ticker fires. Short intervals for testing.
 		client.WithHeartbeat(50*time.Millisecond, 200*time.Millisecond, 5*time.Second),
 	)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for a ping message.
@@ -385,7 +358,5 @@ func TestWithHeartbeat_SendsPings(t *testing.T) {
 			break
 		}
 	}
-	if !pingSeen {
-		t.Fatal("no ping message received from heartbeat")
-	}
+	require.True(t, pingSeen, "no ping message received from heartbeat")
 }

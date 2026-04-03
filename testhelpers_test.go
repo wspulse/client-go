@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	wspulse "github.com/wspulse/core"
 
 	"github.com/wspulse/client-go"
@@ -138,9 +140,7 @@ func dialWithMock(t *testing.T, opts ...client.ClientOption) (client.Client, *mo
 	}
 	allOpts = append(allOpts, opts...)
 	c, err := client.Dial("ws://mock", allOpts...)
-	if err != nil {
-		t.Fatalf("Dial failed: %v", err)
-	}
+	require.NoError(t, err, "Dial failed")
 	return c, mt, fc
 }
 
