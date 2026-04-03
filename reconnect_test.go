@@ -182,6 +182,7 @@ func TestAutoReconnect_CloseDuringBackoff(t *testing.T) {
 	for fc.TimerCount() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
+	require.Greater(t, fc.TimerCount(), 0, "no backoff timer was registered")
 
 	// Close while timer is still pending (we do NOT fire it).
 	closeDone := make(chan struct{})

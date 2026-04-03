@@ -65,12 +65,12 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 	blockCh := m.blockCh
 	m.mu.Unlock()
 
-	// When blockCh is set, block until the transport is closed.
-	// This lets tests deterministically stall writePump to fill c.send.
+	// When blockCh is set, block until unblock is called or the transport
+	// is closed. After unblock, blockCh is cleared so writes resume normally.
 	if blockCh != nil {
 		select {
 		case <-blockCh:
-			return &net.OpError{Op: "write", Err: net.ErrClosed}
+			// Unblocked — fall through to normal write path.
 		case <-m.closeCh:
 			return &net.OpError{Op: "write", Err: net.ErrClosed}
 		}
@@ -123,7 +123,14 @@ func (m *mockTransport) BlockWrites() (unblock func()) {
 	m.blockCh = ch
 	m.mu.Unlock()
 	once := sync.Once{}
-	return func() { once.Do(func() { close(ch) }) }
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			m.blockCh = nil
+			m.mu.Unlock()
+			close(ch)
+		})
+	}
 }
 
 // InjectMessage simulates a message from the server.
