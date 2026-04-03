@@ -20,7 +20,7 @@ type mockTransport struct {
 	writeCh   chan writeCall
 	closeCh   chan struct{}
 	closeOnce sync.Once
-	blockCh   chan struct{} // when non-nil, WriteMessage blocks until closeCh
+	blockCh   chan struct{} // when non-nil, WriteMessage blocks until blockCh or closeCh is closed
 
 	mu          sync.Mutex
 	readLimit   int64

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/core` for shared types (`Frame`, `Codec`). Test-only dependency on `github.com/wspulse/server` for echo server helpers.
+wspulse/client-go is a **WebSocket client library for Go** with automatic reconnection and exponential backoff. Module path: `github.com/wspulse/client-go`. Package name: `client`. Depends on `github.com/wspulse/core` for shared types (`Frame`, `Codec`, `Transport`).
 
 ## Architecture
 
@@ -15,8 +15,7 @@ wspulse/client-go is a **WebSocket client library for Go** with automatic reconn
 make fmt              # format (gofmt + goimports)
 make lint             # vet + golangci-lint
 make test             # unit tests with race detector
-make test-integration # all tests (unit + integration) with race detector
-make check            # fmt + lint + unit test (pre-commit gate)
+make check            # fmt + lint + test (pre-commit gate)
 make bench            # benchmarks with memory stats
 make test-cover       # all tests with coverage report → coverage.html
 make tidy             # tidy module dependencies
@@ -43,7 +42,7 @@ make tidy             # tidy module dependencies
     - CI triggers on all branch prefixes above and on PRs targeting `main`/`develop`. Tags do **not** trigger CI (the tag is created after CI already passed). Open a PR into `develop`; `develop` requires status checks to pass.
   - **Pull request description**: must follow the repo's `.github/PULL_REQUEST_TEMPLATE.md`. Fill in every section (Summary, Changes, Checklist). Do not invent custom formats.
 - **Tests**: co-located with source (`_test.go`). Cover happy path and at least one error path. Required for new public functions. Tests may import `github.com/wspulse/server` to create echo servers — this is a test-only dependency.
-  - **Unit vs integration**: integration tests (requiring a WebSocket server) use `//go:build integration` and live in `*_integration_test.go` files. `make check` runs unit tests only by default; set `INCLUDE_INTEGRATION=1` to include integration tests.
+  - **Component tests**: use mock transport (no real WebSocket server). All tests run with `make check` — no build tags or separate targets needed.
   - **Test-first for bug fixes**: **mandatory** — see Critical Rule 9 for the required step-by-step procedure. Do not touch production code without a prior failing test.
   - **Benchmarks**: changes to reconnect backoff, message throughput, or codec must include a benchmark. Verify with `make bench`.
 - **API compatibility**:
