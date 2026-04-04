@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+
 	wspulse "github.com/wspulse/core"
 )
 
