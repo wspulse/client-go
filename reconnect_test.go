@@ -55,7 +55,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Verify initial connectivity.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
-	f := <-received
+	f := requireReceive[wspulse.Frame](t, received, "initial echo before kick")
 	assert.Equal(t, "before", f.Event)
 
 	// Stop echo on mt1, then kill the transport.
@@ -189,7 +189,10 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		}),
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
-			restored <- struct{}{}
+			select {
+			case restored <- struct{}{}:
+			default:
+			}
 		}),
 		client.WithOnMessage(func(f wspulse.Frame) {
 			select {

@@ -233,7 +233,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
 	// Wait for transport drop.
-	<-transportDropped
+	requireReceive[struct{}](t, transportDropped, "OnTransportDrop")
 
 	// Fire the backoff timer so reconnect proceeds.
 	<-fc.timerAdded
@@ -242,7 +242,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	fc.mu.Unlock()
 
 	// Wait for transport restore.
-	<-transportRestored
+	requireReceive[struct{}](t, transportRestored, "OnTransportRestore")
 
 	// Fire any unexpected backoff timers so the client can close if a
 	// secondary drop occurs under race detector scheduling.
