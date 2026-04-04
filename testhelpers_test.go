@@ -178,28 +178,17 @@ func (d *headerCapturingDialer) Dial(_ string, header http.Header) (wspulse.Tran
 	return nil, errors.New("headerCapturingDialer: no more transports")
 }
 
-// requireReceive waits for a value on ch, failing the test if ch is not ready
-// within a generous safety timeout. The timeout exists only to prevent infinite
-// hangs in broken code — it should never fire in a passing test.
-func requireReceive[T any](t *testing.T, ch <-chan T, msgAndArgs ...any) T {
+// requireReceive waits for a value on ch. The test binary's -timeout flag
+// is the only hang guard — no real-time deadlines here.
+func requireReceive[T any](t *testing.T, ch <-chan T, _ ...any) T {
 	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(3 * time.Second):
-		require.Fail(t, "timed out waiting for channel receive", msgAndArgs...)
-		return *new(T) // unreachable
-	}
+	return <-ch
 }
 
 // requireDone waits for the client's Done channel to close.
 func requireDone(t *testing.T, c client.Client) {
 	t.Helper()
-	select {
-	case <-c.Done():
-	case <-time.After(3 * time.Second):
-		require.Fail(t, "timed out waiting for Done()")
-	}
+	<-c.Done()
 }
 
 // failEncodeCodecComponent is a test codec whose Encode always returns an error.
