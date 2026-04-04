@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
-
 	wspulse "github.com/wspulse/core"
 )
 
@@ -379,6 +378,19 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 
 		close(oldQuit)
 		<-oldPumpDone
+
+		// Guard: if Close() was called while we were waiting for the old
+		// pumps to drain, skip launching new ones to avoid wasted work.
+		// Note: a panic from Add-concurrent-with-Wait is impossible here
+		// because reconnectLoop itself holds one WaitGroup count, keeping
+		// the counter ≥ 1 until this function returns.
+		select {
+		case <-c.quit:
+			c.logger.Debug("wspulse: quit before starting fresh pumps, closing fresh connection")
+			_ = conn.Close()
+			return
+		default:
+		}
 
 		c.goroutineWaitGroup.Add(2)
 		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone) }()
