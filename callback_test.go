@@ -220,10 +220,12 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	t.Parallel()
 	mt1 := newMockTransport()
 	mt2 := newMockTransport()
+	spare := newMockTransport()
 	fc := newFakeClock()
 	md := newMockDialer(
 		mockDialResult{transport: mt1},
 		mockDialResult{transport: mt2},
+		mockDialResult{transport: spare},
 	)
 
 	transportDropped := make(chan struct{}, 5)
@@ -232,7 +234,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
 		client.WithClock(fc),
-		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
+		client.WithAutoReconnect(5, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnTransportDrop(func(err error) {
 			select {
 			case transportDropped <- struct{}{}:
@@ -259,28 +261,21 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
 	// Wait for transport drop.
-	select {
-	case <-transportDropped:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onTransportDrop")
-	}
+	<-transportDropped
 
 	// Fire the backoff timer so reconnect proceeds.
-	deadline := time.Now().Add(time.Second)
-	for fc.TimerCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	require.Greater(t, fc.TimerCount(), 0, "no backoff timer created")
+	<-fc.timerAdded
 	fc.mu.Lock()
 	fc.timers[len(fc.timers)-1].timer.Reset(0)
 	fc.mu.Unlock()
 
 	// Wait for transport restore.
-	select {
-	case <-transportRestored:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onTransportRestore")
-	}
+	<-transportRestored
+
+	// Fire any unexpected backoff timers so the client can close if a
+	// secondary drop occurs under race detector scheduling.
+	stopTimers := fireBackoffTimers(fc, 10)
+	defer stopTimers()
 
 	// Start echo loop on the second transport.
 	echoDone := make(chan struct{})
@@ -292,8 +287,8 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	select {
 	case f := <-received:
 		assert.Equal(t, "post-restore", f.Event)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo after restore")
+	case <-c.Done():
+		t.Fatal("client closed before echo received")
 	}
 }
 

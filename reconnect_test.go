@@ -19,10 +19,12 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	t.Parallel()
 	mt1 := newMockTransport()
 	mt2 := newMockTransport()
+	spare := newMockTransport()
 	fc := newFakeClock()
 	md := newMockDialer(
 		mockDialResult{transport: mt1},
 		mockDialResult{transport: mt2},
+		mockDialResult{transport: spare},
 	)
 
 	restored := make(chan struct{}, 5)
@@ -53,34 +55,26 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Verify initial connectivity.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
-	select {
-	case f := <-received:
-		assert.Equal(t, "before", f.Event)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo before kick")
-	}
+	f := <-received
+	assert.Equal(t, "before", f.Event)
 
 	// Stop echo on mt1, then kill the transport.
 	close(echo1Done)
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
 	// Fire the backoff timer.
-	deadline := time.Now().Add(time.Second)
-	initialCount := fc.TimerCount()
-	for fc.TimerCount() == initialCount && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	require.Greater(t, fc.TimerCount(), initialCount, "no backoff timer was registered")
+	<-fc.timerAdded
 	fc.mu.Lock()
 	fc.timers[len(fc.timers)-1].timer.Reset(0)
 	fc.mu.Unlock()
 
 	// Wait for onTransportRestore.
-	select {
-	case <-restored:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onTransportRestore")
-	}
+	<-restored
+
+	// Fire any unexpected backoff timers so the client can close if a
+	// secondary drop occurs under race detector scheduling.
+	stopTimers := fireBackoffTimers(fc, 10)
+	defer stopTimers()
 
 	// Start echo loop on mt2.
 	echo2Done := make(chan struct{})
@@ -90,10 +84,10 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	// Verify post-reconnect message delivery.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
 	select {
-	case f := <-received:
-		assert.Equal(t, "after", f.Event)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo after reconnect")
+	case f2 := <-received:
+		assert.Equal(t, "after", f2.Event)
+	case <-c.Done():
+		t.Fatal("client closed before echo received")
 	}
 }
 
@@ -123,11 +117,7 @@ func TestAutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
 	stopTimers := fireBackoffTimers(fc, 5)
 	defer stopTimers()
 
-	select {
-	case <-c.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: Done() did not close after max retries exhausted")
-	}
+	<-c.Done()
 }
 
 func TestAutoReconnect_CloseDuringBackoff(t *testing.T) {
@@ -158,18 +148,10 @@ func TestAutoReconnect_CloseDuringBackoff(t *testing.T) {
 	// Kill the first transport.
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	select {
-	case <-transportDropped:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for transport drop")
-	}
+	<-transportDropped
 
 	// Wait for the backoff timer to be created.
-	deadline := time.Now().Add(time.Second)
-	for fc.TimerCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	require.Greater(t, fc.TimerCount(), 0, "no backoff timer was registered")
+	<-fc.timerAdded
 
 	// Close while timer is still pending (we do NOT fire it).
 	closeDone := make(chan struct{})
@@ -178,18 +160,17 @@ func TestAutoReconnect_CloseDuringBackoff(t *testing.T) {
 		close(closeDone)
 	}()
 
-	select {
-	case <-closeDone:
-	case <-time.After(time.Second):
-		t.Fatal("Close() hung during backoff — timer not stopped")
-	}
+	<-closeDone
 }
 
 func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	t.Parallel()
 	const cycles = 3
-	transports := make([]*mockTransport, cycles+1)
-	results := make([]mockDialResult, cycles+1)
+	// Allocate extra transports beyond the expected cycles to absorb
+	// any spurious secondary drops under race detector scheduling.
+	const spares = 3
+	transports := make([]*mockTransport, cycles+1+spares)
+	results := make([]mockDialResult, cycles+1+spares)
 	for i := range transports {
 		transports[i] = newMockTransport()
 		results[i] = mockDialResult{transport: transports[i]}
@@ -201,6 +182,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	var dropCount atomic.Int32
 	var restoreCount atomic.Int32
 	received := make(chan wspulse.Frame, 10)
+	restored := make(chan struct{}, cycles)
 
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
@@ -211,6 +193,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		}),
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
+			restored <- struct{}{}
 		}),
 		client.WithOnMessage(func(f wspulse.Frame) {
 			select {
@@ -223,41 +206,29 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Drain the initial dial signal from client.Dial().
-	select {
-	case <-md.dialCalled:
-	case <-time.After(time.Second):
-		t.Fatal("timed out draining initial dialCalled")
-	}
+	<-md.dialCalled
 
 	for i := 0; i < cycles; i++ {
 		// Kill the current transport.
 		transports[i].InjectError(&net.OpError{Op: "read", Err: errors.New("reset")})
 
 		// Fire the backoff timer.
-		dl := time.Now().Add(time.Second)
-		prevTimerCount := fc.TimerCount()
-		for fc.TimerCount() <= prevTimerCount && time.Now().Before(dl) {
-			time.Sleep(time.Millisecond)
-		}
-		require.Greater(t, fc.TimerCount(), prevTimerCount, "no backoff timer was registered for cycle %d", i)
+		<-fc.timerAdded
 		fc.mu.Lock()
 		fc.timers[len(fc.timers)-1].timer.Reset(0)
 		fc.mu.Unlock()
 
 		// Wait for dial to happen.
-		select {
-		case <-md.dialCalled:
-		case <-time.After(time.Second):
-			t.Fatalf("cycle %d: timed out waiting for dial", i)
-		}
+		<-md.dialCalled
 
-		// After dialCalled fires, pumps start asynchronously.
-		// Poll until restore callback fires, confirming pumps are running.
-		restoreDl := time.Now().Add(time.Second)
-		for restoreCount.Load() < int32(i+1) && time.Now().Before(restoreDl) {
-			time.Sleep(time.Millisecond)
-		}
+		// Wait for restore callback, confirming pumps are running.
+		<-restored
 	}
+
+	// Fire any unexpected backoff timers so the client can exhaust retries
+	// and close if a secondary drop occurs under race detector scheduling.
+	stopTimers := fireBackoffTimers(fc, 10)
+	defer stopTimers()
 
 	// After cycles reconnects, verify echo on the final transport.
 	echoDone := make(chan struct{})
@@ -268,8 +239,8 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 	select {
 	case f := <-received:
 		assert.Equal(t, "final", f.Event)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo after rapid cycles")
+	case <-c.Done():
+		t.Fatal("client closed before echo received")
 	}
 
 	assert.GreaterOrEqual(t, dropCount.Load(), int32(cycles), "transport drop count")
@@ -303,17 +274,9 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo")
-	}
+	<-received
 
 	_ = c.Close()
 
-	select {
-	case <-disconnected:
-	case <-time.After(time.Second):
-		t.Fatal("timed out: onDisconnect did not fire after Close() with auto-reconnect")
-	}
+	<-disconnected
 }

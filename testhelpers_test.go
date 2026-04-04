@@ -20,9 +20,10 @@ import (
 // fakeClock replaces both NewTimer (backoff) and NewTicker (heartbeat) with
 // controllable fakes. No real timers fire — tests drive time explicitly.
 type fakeClock struct {
-	mu      sync.Mutex
-	timers  []*fakeTimerEntry
-	tickers []*fakeTickerEntry
+	mu         sync.Mutex
+	timers     []*fakeTimerEntry
+	tickers    []*fakeTickerEntry
+	timerAdded chan struct{}
 }
 
 type fakeTimerEntry struct {
@@ -35,7 +36,7 @@ type fakeTickerEntry struct {
 	ticker *time.Ticker
 }
 
-func newFakeClock() *fakeClock { return &fakeClock{} }
+func newFakeClock() *fakeClock { return &fakeClock{timerAdded: make(chan struct{}, 16)} }
 
 // NewTimer returns a stopped timer that will not fire on its own.
 func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
@@ -43,6 +44,10 @@ func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
 	t.Stop()
 	fc.mu.Lock()
 	fc.timers = append(fc.timers, &fakeTimerEntry{d: d, timer: t})
+	select {
+	case fc.timerAdded <- struct{}{}:
+	default:
+	}
 	fc.mu.Unlock()
 	return t
 }
@@ -98,27 +103,14 @@ func fireBackoffTimers(fc *fakeClock, maxTimers int) (stop func()) {
 	go func() {
 		defer close(stopped)
 		for i := 0; i < maxTimers; i++ {
-			deadline := time.Now().Add(time.Second)
-			for {
-				select {
-				case <-stopCh:
-					return
-				default:
-				}
-				fc.mu.Lock()
-				count := len(fc.timers)
-				fc.mu.Unlock()
-				if count > i {
-					fc.mu.Lock()
-					fc.timers[count-1].timer.Reset(0)
-					fc.mu.Unlock()
-					break
-				}
-				if time.Now().After(deadline) {
-					break
-				}
-				time.Sleep(time.Millisecond)
+			select {
+			case <-fc.timerAdded:
+			case <-stopCh:
+				return
 			}
+			fc.mu.Lock()
+			fc.timers[len(fc.timers)-1].timer.Reset(0)
+			fc.mu.Unlock()
 		}
 	}()
 	return func() {
