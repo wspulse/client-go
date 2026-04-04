@@ -1,7 +1,7 @@
 # Component Test Coverage — client-go
 
 > **Contract:** all scenarios defined in
-> [`.github/doc/contracts/client/integration-test-scenarios.md`](https://github.com/wspulse/.github/blob/main/doc/contracts/client/integration-test-scenarios.md)
+> [`.github/doc/contracts/client/test-scenarios.md`](https://github.com/wspulse/.github/blob/main/doc/contracts/client/test-scenarios.md)
 
 Component tests use a channel-based mock transport (`mockTransport`) and mock
 dialer (`mockDialer`) — no real WebSocket server or TCP I/O. All tests are
