@@ -99,8 +99,9 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	)
 	dropped := make(chan struct{})
 	c.goroutineWaitGroup.Add(3)
-	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(connectionQuit, pumpDone) }()
-	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
+	conn := c.connection
+	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, connectionQuit, pumpDone) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
 	if config.autoReconnect {
 		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
@@ -192,10 +193,7 @@ func (c *internalClient) dialOnce() error {
 	return nil
 }
 
-func (c *internalClient) readPump(dropped chan struct{}) {
-	c.mu.Lock()
-	wsConnection := c.connection
-	c.mu.Unlock()
+func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan struct{}) {
 
 	var readErr error
 
@@ -207,7 +205,6 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 			)
 		}
 		_ = wsConnection.Close()
-		close(dropped)
 
 		c.logger.Debug("wspulse: connection lost",
 			zap.Error(readErr),
@@ -216,6 +213,8 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 		if fn := c.config.onTransportDrop; fn != nil {
 			fn(readErr)
 		}
+
+		close(dropped)
 	}()
 
 	pongWait := c.config.pongWait
@@ -246,10 +245,7 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 	}
 }
 
-func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan struct{}) {
-	c.mu.Lock()
-	wsConnection := c.connection
-	c.mu.Unlock()
+func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQuit chan struct{}, pumpDone chan struct{}) {
 
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
@@ -378,14 +374,15 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		newPumpDone := make(chan struct{})
 		c.connectionQuit = newQuit
 		c.pumpDone = newPumpDone
+		conn := c.connection
 		c.mu.Unlock()
 
 		close(oldQuit)
 		<-oldPumpDone
 
 		c.goroutineWaitGroup.Add(2)
-		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newQuit, newPumpDone) }()
-		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
 		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
