@@ -27,7 +27,7 @@ func TestOnDisconnect_CallbackFires(t *testing.T) {
 
 	_ = c.Close()
 
-	_ = requireReceive[error](t, disconnected, "OnDisconnect callback")
+	_ = requireReceive(t, disconnected)
 }
 
 func TestOnDisconnect_NilOnNormalClose(t *testing.T) {
@@ -41,7 +41,7 @@ func TestOnDisconnect_NilOnNormalClose(t *testing.T) {
 
 	_ = c.Close()
 
-	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	got := requireReceive(t, disconnectErr)
 	assert.NoError(t, got, "want nil error on normal Close()")
 }
 
@@ -58,7 +58,7 @@ func TestOnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	// Simulate server drop.
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	got := requireReceive(t, disconnectErr)
 	assert.Error(t, got, "want non-nil error on server drop")
 }
 
@@ -75,7 +75,7 @@ func TestOnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	// Simulate server drop.
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	got := requireReceive(t, disconnectErr)
 	assert.ErrorIs(t, got, client.ErrConnectionLost)
 }
 
@@ -108,7 +108,7 @@ func TestOnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	stopTimers := fireBackoffTimers(fc, 5)
 	defer stopTimers()
 
-	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	got := requireReceive(t, disconnectErr)
 	assert.Error(t, got, "want non-nil error on max retries exhausted")
 }
 
@@ -146,7 +146,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 
 	// Confirm connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	requireReceive[struct{}](t, received, "echo")
+	requireReceive(t, received)
 
 	_ = c.Close()
 
@@ -185,7 +185,7 @@ func TestOnTransportDrop_FiresOnReconnect(t *testing.T) {
 	// Kill the first transport.
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	requireReceive[struct{}](t, transportDropped, "OnTransportDrop")
+	requireReceive(t, transportDropped)
 }
 
 func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
@@ -233,7 +233,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
 	// Wait for transport drop.
-	requireReceive[struct{}](t, transportDropped, "OnTransportDrop")
+	requireReceive(t, transportDropped)
 
 	// Fire the backoff timer so reconnect proceeds.
 	<-fc.timerAdded
@@ -242,7 +242,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	fc.mu.Unlock()
 
 	// Wait for transport restore.
-	requireReceive[struct{}](t, transportRestored, "OnTransportRestore")
+	requireReceive(t, transportRestored)
 
 	// Fire any unexpected backoff timers so the client can close if a
 	// secondary drop occurs under race detector scheduling.
@@ -289,7 +289,7 @@ func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 
 	// Round-trip a frame to prove all pumps are fully operational.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "probe"}), "Send failed")
-	requireReceive[wspulse.Frame](t, received, "probe echo")
+	requireReceive(t, received)
 
 	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on initial connect")
 }
@@ -329,7 +329,7 @@ func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	defer stopTimers()
 
 	// Wait for onDisconnect with ErrRetriesExhausted.
-	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	got := requireReceive(t, disconnectErr)
 	assert.ErrorIs(t, got, client.ErrRetriesExhausted)
 
 	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on failed reconnect")

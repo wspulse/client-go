@@ -76,7 +76,7 @@ func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	validFrame := `{"event":"valid-frame","payload":"ok"}`
 	mt.InjectMessage(1, []byte(validFrame))
 
-	f := requireReceive[wspulse.Frame](t, received, "valid frame")
+	f := requireReceive(t, received)
 	assert.Equal(t, "valid-frame", f.Event)
 }
 
@@ -97,7 +97,7 @@ func TestReadPump_PanicRecovery(t *testing.T) {
 	trigger := `{"event":"trigger","payload":null}`
 	mt.InjectMessage(1, []byte(trigger))
 
-	_ = requireReceive[error](t, disconnected, "readPump panic recovery")
+	_ = requireReceive(t, disconnected)
 }
 
 func TestSend_EncodeError_ReturnsError(t *testing.T) {
@@ -140,7 +140,7 @@ func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for writePump to create the heartbeat ticker.
-	requireReceive[struct{}](t, fc.tickerAdded, "tickerAdded")
+	requireReceive(t, fc.tickerAdded)
 
 	// Fire the ticker to trigger a ping write.
 	fc.fireTicker(0)
@@ -148,7 +148,7 @@ func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 	// Verify a ping was written.
 	pingSeen := false
 	for {
-		w := requireReceive[writeCall](t, mt.writeCh, "ping write")
+		w := requireReceive(t, mt.writeCh)
 		if w.messageType == 9 { // PingMessage
 			pingSeen = true
 			break
@@ -160,7 +160,7 @@ func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
 	// Kill the transport to simulate a connection loss.
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("i/o timeout")})
 
-	got := requireReceive[error](t, disconnected, "onDisconnect")
+	got := requireReceive(t, disconnected)
 	assert.Error(t, got, "want non-nil error on disconnect")
 
 	requireDone(t, c)
@@ -219,7 +219,7 @@ func TestWithMaxMessageSize(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for readPump to call SetReadLimit.
-	requireReceive[struct{}](t, mt.readLimitSet, "SetReadLimit")
+	requireReceive(t, mt.readLimitSet)
 
 	mt.mu.Lock()
 	readLimit := mt.readLimit
@@ -249,7 +249,7 @@ func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for readPump to call SetReadLimit.
-	requireReceive[struct{}](t, mt.readLimitSet, "SetReadLimit")
+	requireReceive(t, mt.readLimitSet)
 
 	mt.mu.Lock()
 	readLimit := mt.readLimit
@@ -260,7 +260,7 @@ func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
 	// when receiving an oversized message.
 	mt.InjectError(errors.New("websocket: read limit exceeded"))
 
-	_ = requireReceive[error](t, dropped, "transport drop")
+	_ = requireReceive(t, dropped)
 }
 
 func TestWithLogger_ValidLogger_Applied(t *testing.T) {
@@ -298,7 +298,7 @@ func TestWithHeartbeat_SendsPings(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Wait for writePump to create the heartbeat ticker.
-	requireReceive[struct{}](t, fc.tickerAdded, "tickerAdded")
+	requireReceive(t, fc.tickerAdded)
 
 	// Fire the ticker to trigger a ping write.
 	fc.fireTicker(0)
@@ -306,7 +306,7 @@ func TestWithHeartbeat_SendsPings(t *testing.T) {
 	// Read writes until we see a ping.
 	pingSeen := false
 	for {
-		w := requireReceive[writeCall](t, mt.writeCh, "ping write")
+		w := requireReceive(t, mt.writeCh)
 		if w.messageType == 9 { // PingMessage
 			pingSeen = true
 			break

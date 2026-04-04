@@ -55,7 +55,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Verify initial connectivity.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
-	f := requireReceive[wspulse.Frame](t, received, "initial echo before kick")
+	f := requireReceive(t, received)
 	assert.Equal(t, "before", f.Event)
 
 	// Stop echo on mt1, then kill the transport.
@@ -83,7 +83,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Verify post-reconnect message delivery.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
-	f2 := requireReceive[wspulse.Frame](t, received, "echo after reconnect")
+	f2 := requireReceive(t, received)
 	assert.Equal(t, "after", f2.Event)
 }
 
@@ -236,7 +236,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 
 	require.NoError(t, c.Send(wspulse.Frame{Event: "final", Payload: []byte(`"ok"`)}), "Send after cycles")
 
-	f := requireReceive[wspulse.Frame](t, received, "echo after cycles")
+	f := requireReceive(t, received)
 	assert.Equal(t, "final", f.Event)
 
 	assert.GreaterOrEqual(t, dropCount.Load(), int32(cycles), "transport drop count")
@@ -270,9 +270,9 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	requireReceive[struct{}](t, received, "echo")
+	requireReceive(t, received)
 
 	_ = c.Close()
 
-	requireReceive[struct{}](t, disconnected, "onDisconnect")
+	requireReceive(t, disconnected)
 }

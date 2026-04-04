@@ -27,7 +27,7 @@ func TestSendAndReceive(t *testing.T) {
 	frame := wspulse.Frame{Event: "echo", Payload: []byte(`"hello"`)}
 	require.NoError(t, c.Send(frame), "Send failed")
 
-	f := requireReceive[wspulse.Frame](t, received, "echo")
+	f := requireReceive(t, received)
 	assert.Equal(t, "echo", f.Event)
 }
 
@@ -61,7 +61,7 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	frame := wspulse.Frame{Event: "test", Payload: []byte(`"data"`)}
 	require.NoError(t, c.Send(frame), "Send failed")
 
-	w := requireReceive[writeCall](t, mt.writeCh, "write from Send")
+	w := requireReceive(t, mt.writeCh)
 	assert.Equal(t, 1, w.messageType, "messageType") // TextMessage (JSONCodec)
 
 	// Decode the written data and verify.

@@ -180,7 +180,7 @@ func (d *headerCapturingDialer) Dial(_ string, header http.Header) (wspulse.Tran
 
 // requireReceive waits for a value on ch. The test binary's -timeout flag
 // is the only hang guard — no real-time deadlines here.
-func requireReceive[T any](t *testing.T, ch <-chan T, _ ...any) T {
+func requireReceive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	return <-ch
 }

@@ -36,7 +36,7 @@ func TestClose_WaitsForDisconnectCallback(t *testing.T) {
 	}()
 
 	close(gate)
-	requireReceive[struct{}](t, closeDone, "Close() did not return")
+	requireReceive(t, closeDone)
 	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
@@ -58,7 +58,7 @@ func TestClose_WaitsForTransportDropCallback(t *testing.T) {
 	}()
 
 	close(gate)
-	requireReceive[struct{}](t, closeDone, "Close() did not return")
+	requireReceive(t, closeDone)
 	require.True(t, callbackDone.Load(), "Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
 }
 
@@ -81,7 +81,7 @@ func TestClose_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 	}()
 
 	close(gate)
-	requireReceive[struct{}](t, closeDone, "Close() did not return")
+	requireReceive(t, closeDone)
 	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
@@ -106,13 +106,13 @@ func TestClose_WaitsForGoroutines(t *testing.T) {
 		entries[i] = entry{c: c, mt: mt}
 	}
 
-	for i, e := range entries {
+	for _, e := range entries {
 		closeDone := make(chan struct{})
 		go func() {
 			_ = e.c.Close()
 			close(closeDone)
 		}()
-		requireReceive[struct{}](t, closeDone, "Client #%d: Close() did not return", i)
+		requireReceive(t, closeDone)
 		requireDone(t, e.c)
 	}
 }
@@ -139,13 +139,13 @@ func TestClose_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 		entries[i] = entry{c: c, mt: mt}
 	}
 
-	for i, e := range entries {
+	for _, e := range entries {
 		closeDone := make(chan struct{})
 		go func() {
 			_ = e.c.Close()
 			close(closeDone)
 		}()
-		requireReceive[struct{}](t, closeDone, "Client #%d: Close() did not return", i)
+		requireReceive(t, closeDone)
 		requireDone(t, e.c)
 	}
 }
@@ -166,7 +166,7 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	requireReceive[wspulse.Frame](t, received, "echo")
+	requireReceive(t, received)
 
 	// Stop echo and simulate server drop.
 	close(echoDone)
@@ -238,7 +238,7 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	requireReceive[struct{}](t, received, "echo")
+	requireReceive(t, received)
 
 	// Simultaneously close the client and drop the transport.
 	var wg sync.WaitGroup
@@ -258,10 +258,10 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 		close(done)
 	}()
 
-	requireReceive[struct{}](t, done, "concurrent close/drop")
+	requireReceive(t, done)
 
 	// Wait for onDisconnect to fire.
-	requireReceive[struct{}](t, disconnectDone, "onDisconnect")
+	requireReceive(t, disconnectDone)
 
 	// Wait for Done() to close, which confirms all teardown is complete.
 	requireDone(t, c)
