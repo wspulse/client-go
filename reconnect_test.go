@@ -83,12 +83,8 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 
 	// Verify post-reconnect message delivery.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
-	select {
-	case f2 := <-received:
-		assert.Equal(t, "after", f2.Event)
-	case <-c.Done():
-		t.Fatal("client closed before echo received")
-	}
+	f2 := requireReceive[wspulse.Frame](t, received, "echo after reconnect")
+	assert.Equal(t, "after", f2.Event)
 }
 
 func TestAutoReconnect_MaxRetriesExhausted_ClosesDone(t *testing.T) {
@@ -225,23 +221,20 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		<-restored
 	}
 
-	// Fire any unexpected backoff timers so the client can exhaust retries
-	// and close if a secondary drop occurs under race detector scheduling.
-	stopTimers := fireBackoffTimers(fc, 10)
-	defer stopTimers()
-
 	// After cycles reconnects, verify echo on the final transport.
+	// Start echoLoops on all remaining transports (from index cycles onward)
+	// so that echo works even if the client made an unexpected secondary
+	// reconnect under race detector scheduling.
 	echoDone := make(chan struct{})
 	defer close(echoDone)
-	go echoLoop(transports[cycles], echoDone)
+	for idx := cycles; idx < len(transports); idx++ {
+		go echoLoop(transports[idx], echoDone)
+	}
 
 	require.NoError(t, c.Send(wspulse.Frame{Event: "final", Payload: []byte(`"ok"`)}), "Send after cycles")
-	select {
-	case f := <-received:
-		assert.Equal(t, "final", f.Event)
-	case <-c.Done():
-		t.Fatal("client closed before echo received")
-	}
+
+	f := requireReceive[wspulse.Frame](t, received, "echo after cycles")
+	assert.Equal(t, "final", f.Event)
 
 	assert.GreaterOrEqual(t, dropCount.Load(), int32(cycles), "transport drop count")
 	assert.GreaterOrEqual(t, restoreCount.Load(), int32(cycles), "transport restore count")
@@ -274,9 +267,9 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	<-received
+	requireReceive[struct{}](t, received, "echo")
 
 	_ = c.Close()
 
-	<-disconnected
+	requireReceive[struct{}](t, disconnected, "onDisconnect")
 }

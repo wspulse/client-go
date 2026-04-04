@@ -22,10 +22,11 @@ type mockTransport struct {
 	closeOnce sync.Once
 	blockCh   chan struct{} // when non-nil, WriteMessage blocks until blockCh or closeCh is closed
 
-	mu          sync.Mutex
-	readLimit   int64
-	pongHandler func(string) error
-	closed      bool
+	mu           sync.Mutex
+	readLimit    int64
+	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
+	pongHandler  func(string) error
+	closed       bool
 }
 
 type readResult struct {
@@ -41,9 +42,10 @@ type writeCall struct {
 
 func newMockTransport() *mockTransport {
 	return &mockTransport{
-		readCh:  make(chan readResult, 16),
-		writeCh: make(chan writeCall, 256),
-		closeCh: make(chan struct{}),
+		readCh:       make(chan readResult, 16),
+		writeCh:      make(chan writeCall, 256),
+		closeCh:      make(chan struct{}),
+		readLimitSet: make(chan struct{}, 1),
 	}
 }
 
@@ -93,6 +95,12 @@ func (m *mockTransport) SetReadLimit(limit int64) {
 	m.mu.Lock()
 	m.readLimit = limit
 	m.mu.Unlock()
+	if limit != 0 {
+		select {
+		case m.readLimitSet <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (m *mockTransport) SetReadDeadline(_ time.Time) error  { return nil }
@@ -141,16 +149,6 @@ func (m *mockTransport) InjectMessage(messageType int, data []byte) {
 // InjectError simulates a read error (e.g. connection drop).
 func (m *mockTransport) InjectError(err error) {
 	m.readCh <- readResult{err: err}
-}
-
-// WaitWrite waits for a single write with timeout.
-func (m *mockTransport) WaitWrite(timeout time.Duration) (writeCall, bool) {
-	select {
-	case c := <-m.writeCh:
-		return c, true
-	case <-time.After(timeout):
-		return writeCall{}, false
-	}
 }
 
 // DrainWrites reads all pending writes.

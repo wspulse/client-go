@@ -20,10 +20,11 @@ import (
 // fakeClock replaces both NewTimer (backoff) and NewTicker (heartbeat) with
 // controllable fakes. No real timers fire — tests drive time explicitly.
 type fakeClock struct {
-	mu         sync.Mutex
-	timers     []*fakeTimerEntry
-	tickers    []*fakeTickerEntry
-	timerAdded chan struct{}
+	mu          sync.Mutex
+	timers      []*fakeTimerEntry
+	tickers     []*fakeTickerEntry
+	timerAdded  chan struct{}
+	tickerAdded chan struct{}
 }
 
 type fakeTimerEntry struct {
@@ -36,7 +37,9 @@ type fakeTickerEntry struct {
 	ticker *time.Ticker
 }
 
-func newFakeClock() *fakeClock { return &fakeClock{timerAdded: make(chan struct{}, 16)} }
+func newFakeClock() *fakeClock {
+	return &fakeClock{timerAdded: make(chan struct{}, 16), tickerAdded: make(chan struct{}, 16)}
+}
 
 // NewTimer returns a stopped timer that will not fire on its own.
 func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
@@ -58,6 +61,10 @@ func (fc *fakeClock) NewTicker(d time.Duration) *time.Ticker {
 	t.Stop()
 	fc.mu.Lock()
 	fc.tickers = append(fc.tickers, &fakeTickerEntry{d: d, ticker: t})
+	select {
+	case fc.tickerAdded <- struct{}{}:
+	default:
+	}
 	fc.mu.Unlock()
 	return t
 }
@@ -74,6 +81,24 @@ func (fc *fakeClock) TickerCount() int {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	return len(fc.tickers)
+}
+
+// fireTicker fires the i-th registered ticker by resetting it to 1ns.
+// The consumer (writePump) reads from ticker.C and acts on the tick.
+// Call stopTicker(i) after verifying the side effect to prevent repeated ticks.
+func (fc *fakeClock) fireTicker(i int) {
+	fc.mu.Lock()
+	t := fc.tickers[i].ticker
+	fc.mu.Unlock()
+	t.Reset(time.Nanosecond)
+}
+
+// stopTicker stops the i-th registered ticker.
+func (fc *fakeClock) stopTicker(i int) {
+	fc.mu.Lock()
+	t := fc.tickers[i].ticker
+	fc.mu.Unlock()
+	t.Stop()
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -151,6 +176,30 @@ func (d *headerCapturingDialer) Dial(_ string, header http.Header) (wspulse.Tran
 		return d.transport, nil
 	}
 	return nil, errors.New("headerCapturingDialer: no more transports")
+}
+
+// requireReceive waits for a value on ch, failing the test if ch is not ready
+// within a generous safety timeout. The timeout exists only to prevent infinite
+// hangs in broken code — it should never fire in a passing test.
+func requireReceive[T any](t *testing.T, ch <-chan T, msgAndArgs ...any) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "timed out waiting for channel receive", msgAndArgs...)
+		return *new(T) // unreachable
+	}
+}
+
+// requireDone waits for the client's Done channel to close.
+func requireDone(t *testing.T, c client.Client) {
+	t.Helper()
+	select {
+	case <-c.Done():
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "timed out waiting for Done()")
+	}
 }
 
 // failEncodeCodecComponent is a test codec whose Encode always returns an error.

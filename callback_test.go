@@ -27,11 +27,7 @@ func TestOnDisconnect_CallbackFires(t *testing.T) {
 
 	_ = c.Close()
 
-	select {
-	case <-disconnected:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for OnDisconnect callback")
-	}
+	_ = requireReceive[error](t, disconnected, "OnDisconnect callback")
 }
 
 func TestOnDisconnect_NilOnNormalClose(t *testing.T) {
@@ -45,12 +41,8 @@ func TestOnDisconnect_NilOnNormalClose(t *testing.T) {
 
 	_ = c.Close()
 
-	select {
-	case got := <-disconnectErr:
-		assert.NoError(t, got, "want nil error on normal Close()")
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	assert.NoError(t, got, "want nil error on normal Close()")
 }
 
 func TestOnDisconnect_NonNilOnServerDrop(t *testing.T) {
@@ -66,12 +58,8 @@ func TestOnDisconnect_NonNilOnServerDrop(t *testing.T) {
 	// Simulate server drop.
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	select {
-	case got := <-disconnectErr:
-		assert.Error(t, got, "want non-nil error on server drop")
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	assert.Error(t, got, "want non-nil error on server drop")
 }
 
 func TestOnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
@@ -87,12 +75,8 @@ func TestOnDisconnect_IsErrConnectionLostOnServerDrop(t *testing.T) {
 	// Simulate server drop.
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	select {
-	case got := <-disconnectErr:
-		assert.ErrorIs(t, got, client.ErrConnectionLost)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	assert.ErrorIs(t, got, client.ErrConnectionLost)
 }
 
 func TestOnDisconnect_NonNilOnMaxRetries(t *testing.T) {
@@ -124,12 +108,8 @@ func TestOnDisconnect_NonNilOnMaxRetries(t *testing.T) {
 	stopTimers := fireBackoffTimers(fc, 5)
 	defer stopTimers()
 
-	select {
-	case got := <-disconnectErr:
-		assert.Error(t, got, "want non-nil error on max retries exhausted")
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	assert.Error(t, got, "want non-nil error on max retries exhausted")
 }
 
 func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
@@ -166,11 +146,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 
 	// Confirm connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo")
-	}
+	requireReceive[struct{}](t, received, "echo")
 
 	_ = c.Close()
 
@@ -209,11 +185,7 @@ func TestOnTransportDrop_FiresOnReconnect(t *testing.T) {
 	// Kill the first transport.
 	mt1.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	select {
-	case <-transportDropped:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for OnTransportDrop")
-	}
+	requireReceive[struct{}](t, transportDropped, "OnTransportDrop")
 }
 
 func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
@@ -317,11 +289,7 @@ func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 
 	// Round-trip a frame to prove all pumps are fully operational.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "probe"}), "Send failed")
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for probe echo")
-	}
+	requireReceive[wspulse.Frame](t, received, "probe echo")
 
 	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on initial connect")
 }
@@ -361,12 +329,8 @@ func TestOnTransportRestore_NotFiredOnFailedReconnect(t *testing.T) {
 	defer stopTimers()
 
 	// Wait for onDisconnect with ErrRetriesExhausted.
-	select {
-	case got := <-disconnectErr:
-		assert.ErrorIs(t, got, client.ErrRetriesExhausted)
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	got := requireReceive[error](t, disconnectErr, "onDisconnect")
+	assert.ErrorIs(t, got, client.ErrRetriesExhausted)
 
 	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on failed reconnect")
 }

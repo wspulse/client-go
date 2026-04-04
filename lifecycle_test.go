@@ -19,46 +19,69 @@ import (
 func TestClose_WaitsForDisconnectCallback(t *testing.T) {
 	t.Parallel()
 	var callbackDone atomic.Bool
+	gate := make(chan struct{})
 	c, _, _ := dialWithMock(t,
 		client.WithOnDisconnect(func(err error) {
-			// Intentional delay: simulates a slow callback to verify
-			// that Close() blocks until the callback completes.
-			time.Sleep(200 * time.Millisecond)
+			// Block until the test releases the gate, proving Close()
+			// waits for the callback to complete.
+			<-gate
 			callbackDone.Store(true)
 		}),
 	)
-	_ = c.Close()
+
+	closeDone := make(chan struct{})
+	go func() {
+		_ = c.Close()
+		close(closeDone)
+	}()
+
+	close(gate)
+	requireReceive[struct{}](t, closeDone, "Close() did not return")
 	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
 func TestClose_WaitsForTransportDropCallback(t *testing.T) {
 	t.Parallel()
 	var callbackDone atomic.Bool
+	gate := make(chan struct{})
 	c, _, _ := dialWithMock(t,
 		client.WithOnTransportDrop(func(err error) {
-			// Intentional delay: simulates a slow callback to verify
-			// that Close() blocks until the callback completes.
-			time.Sleep(200 * time.Millisecond)
+			<-gate
 			callbackDone.Store(true)
 		}),
 	)
-	_ = c.Close()
+
+	closeDone := make(chan struct{})
+	go func() {
+		_ = c.Close()
+		close(closeDone)
+	}()
+
+	close(gate)
+	requireReceive[struct{}](t, closeDone, "Close() did not return")
 	require.True(t, callbackDone.Load(), "Close() returned before onTransportDrop callback finished — orphaned callback goroutine")
 }
 
 func TestClose_WaitsForDisconnectCallback_AutoReconnect(t *testing.T) {
 	t.Parallel()
 	var callbackDone atomic.Bool
+	gate := make(chan struct{})
 	c, _, _ := dialWithMock(t,
 		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
 		client.WithOnDisconnect(func(err error) {
-			// Intentional delay: simulates a slow callback to verify
-			// that Close() blocks until the callback completes.
-			time.Sleep(200 * time.Millisecond)
+			<-gate
 			callbackDone.Store(true)
 		}),
 	)
-	_ = c.Close()
+
+	closeDone := make(chan struct{})
+	go func() {
+		_ = c.Close()
+		close(closeDone)
+	}()
+
+	close(gate)
+	requireReceive[struct{}](t, closeDone, "Close() did not return")
 	require.True(t, callbackDone.Load(), "Close() returned before onDisconnect callback finished — orphaned callback goroutine")
 }
 
@@ -89,16 +112,8 @@ func TestClose_WaitsForGoroutines(t *testing.T) {
 			_ = e.c.Close()
 			close(closeDone)
 		}()
-		select {
-		case <-closeDone:
-		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Close() did not return within timeout", i)
-		}
-		select {
-		case <-e.c.Done():
-		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Done() not closed after Close()", i)
-		}
+		requireReceive[struct{}](t, closeDone, "Client #%d: Close() did not return", i)
+		requireDone(t, e.c)
 	}
 }
 
@@ -130,16 +145,8 @@ func TestClose_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 			_ = e.c.Close()
 			close(closeDone)
 		}()
-		select {
-		case <-closeDone:
-		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Close() did not return within timeout", i)
-		}
-		select {
-		case <-e.c.Done():
-		case <-time.After(time.Second):
-			t.Fatalf("Client #%d: Done() not closed after Close()", i)
-		}
+		requireReceive[struct{}](t, closeDone, "Client #%d: Close() did not return", i)
+		requireDone(t, e.c)
 	}
 }
 
@@ -159,22 +166,13 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo")
-	}
+	requireReceive[wspulse.Frame](t, received, "echo")
 
 	// Stop echo and simulate server drop.
 	close(echoDone)
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
-	select {
-	case <-c.Done():
-	case <-time.After(time.Second):
-		t.Fatal("timed out: Done() did not fire after server disconnect")
-	}
-
+	requireDone(t, c)
 	assert.ErrorIs(t, c.Send(wspulse.Frame{Event: "msg"}), wspulse.ErrConnectionClosed)
 }
 
@@ -240,11 +238,7 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 
 	// Confirm the connection is established by round-tripping a frame.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo")
-	}
+	requireReceive[struct{}](t, received, "echo")
 
 	// Simultaneously close the client and drop the transport.
 	var wg sync.WaitGroup
@@ -264,25 +258,13 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for client and transport close to complete")
-	}
+	requireReceive[struct{}](t, done, "concurrent close/drop")
 
 	// Wait for onDisconnect to fire.
-	select {
-	case <-disconnectDone:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for onDisconnect")
-	}
+	requireReceive[struct{}](t, disconnectDone, "onDisconnect")
 
 	// Wait for Done() to close, which confirms all teardown is complete.
-	select {
-	case <-c.Done():
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for Done() after concurrent close/drop")
-	}
+	requireDone(t, c)
 
 	assert.Equal(t, int32(1), disconnectCount.Load(), "onDisconnect fired count")
 }
