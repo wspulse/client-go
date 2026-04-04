@@ -13,7 +13,7 @@
 
 ### Changed
 
-- Extracted `Transport` interface and `WithDialer` option for mock-based testing
+- Extracted `Transport` interface and test-only `WithDialer` support for mock-based testing
 - Migrated all tests to deterministic component tests using mock transport — zero network I/O
 - Adopted `testify` for test assertions
 
