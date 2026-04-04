@@ -3,14 +3,12 @@ package client_test
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	wspulse "github.com/wspulse/core"
-
 	"github.com/wspulse/client-go"
+	wspulse "github.com/wspulse/core"
 )
 
 func TestSendAndReceive(t *testing.T) {
@@ -29,12 +27,8 @@ func TestSendAndReceive(t *testing.T) {
 	frame := wspulse.Frame{Event: "echo", Payload: []byte(`"hello"`)}
 	require.NoError(t, c.Send(frame), "Send failed")
 
-	select {
-	case f := <-received:
-		assert.Equal(t, "echo", f.Event)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for echo")
-	}
+	f := requireReceive(t, received)
+	assert.Equal(t, "echo", f.Event)
 }
 
 func TestClose_SafeToCallTwice(t *testing.T) {
@@ -56,11 +50,7 @@ func TestDone_ClosedAfterClose(t *testing.T) {
 	t.Parallel()
 	c, _, _ := dialWithMock(t)
 	_ = c.Close()
-	select {
-	case <-c.Done():
-	case <-time.After(time.Second):
-		t.Fatal("Done() channel not closed after Close()")
-	}
+	requireDone(t, c)
 }
 
 func TestSend_WritesCorrectData(t *testing.T) {
@@ -71,8 +61,7 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	frame := wspulse.Frame{Event: "test", Payload: []byte(`"data"`)}
 	require.NoError(t, c.Send(frame), "Send failed")
 
-	w, ok := mt.WaitWrite(time.Second)
-	require.True(t, ok, "timed out waiting for write")
+	w := requireReceive(t, mt.writeCh)
 	assert.Equal(t, 1, w.messageType, "messageType") // TextMessage (JSONCodec)
 
 	// Decode the written data and verify.

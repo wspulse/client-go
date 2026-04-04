@@ -20,9 +20,11 @@ import (
 // fakeClock replaces both NewTimer (backoff) and NewTicker (heartbeat) with
 // controllable fakes. No real timers fire — tests drive time explicitly.
 type fakeClock struct {
-	mu      sync.Mutex
-	timers  []*fakeTimerEntry
-	tickers []*fakeTickerEntry
+	mu          sync.Mutex
+	timers      []*fakeTimerEntry
+	tickers     []*fakeTickerEntry
+	timerAdded  chan struct{}
+	tickerAdded chan struct{}
 }
 
 type fakeTimerEntry struct {
@@ -35,7 +37,9 @@ type fakeTickerEntry struct {
 	ticker *time.Ticker
 }
 
-func newFakeClock() *fakeClock { return &fakeClock{} }
+func newFakeClock() *fakeClock {
+	return &fakeClock{timerAdded: make(chan struct{}, 16), tickerAdded: make(chan struct{}, 16)}
+}
 
 // NewTimer returns a stopped timer that will not fire on its own.
 func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
@@ -43,6 +47,10 @@ func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
 	t.Stop()
 	fc.mu.Lock()
 	fc.timers = append(fc.timers, &fakeTimerEntry{d: d, timer: t})
+	select {
+	case fc.timerAdded <- struct{}{}:
+	default:
+	}
 	fc.mu.Unlock()
 	return t
 }
@@ -53,6 +61,10 @@ func (fc *fakeClock) NewTicker(d time.Duration) *time.Ticker {
 	t.Stop()
 	fc.mu.Lock()
 	fc.tickers = append(fc.tickers, &fakeTickerEntry{d: d, ticker: t})
+	select {
+	case fc.tickerAdded <- struct{}{}:
+	default:
+	}
 	fc.mu.Unlock()
 	return t
 }
@@ -69,6 +81,24 @@ func (fc *fakeClock) TickerCount() int {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	return len(fc.tickers)
+}
+
+// fireTicker fires the i-th registered ticker by resetting it to 1ns.
+// The consumer (writePump) reads from ticker.C and acts on the tick.
+// Call stopTicker(i) after verifying the side effect to prevent repeated ticks.
+func (fc *fakeClock) fireTicker(i int) {
+	fc.mu.Lock()
+	t := fc.tickers[i].ticker
+	fc.mu.Unlock()
+	t.Reset(time.Nanosecond)
+}
+
+// stopTicker stops the i-th registered ticker.
+func (fc *fakeClock) stopTicker(i int) {
+	fc.mu.Lock()
+	t := fc.tickers[i].ticker
+	fc.mu.Unlock()
+	t.Stop()
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -98,27 +128,14 @@ func fireBackoffTimers(fc *fakeClock, maxTimers int) (stop func()) {
 	go func() {
 		defer close(stopped)
 		for i := 0; i < maxTimers; i++ {
-			deadline := time.Now().Add(time.Second)
-			for {
-				select {
-				case <-stopCh:
-					return
-				default:
-				}
-				fc.mu.Lock()
-				count := len(fc.timers)
-				fc.mu.Unlock()
-				if count > i {
-					fc.mu.Lock()
-					fc.timers[count-1].timer.Reset(0)
-					fc.mu.Unlock()
-					break
-				}
-				if time.Now().After(deadline) {
-					break
-				}
-				time.Sleep(time.Millisecond)
+			select {
+			case <-fc.timerAdded:
+			case <-stopCh:
+				return
 			}
+			fc.mu.Lock()
+			fc.timers[len(fc.timers)-1].timer.Reset(0)
+			fc.mu.Unlock()
 		}
 	}()
 	return func() {
@@ -159,6 +176,19 @@ func (d *headerCapturingDialer) Dial(_ string, header http.Header) (wspulse.Tran
 		return d.transport, nil
 	}
 	return nil, errors.New("headerCapturingDialer: no more transports")
+}
+
+// requireReceive waits for a value on ch. The test binary's -timeout flag
+// is the only hang guard — no real-time deadlines here.
+func requireReceive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	return <-ch
+}
+
+// requireDone waits for the client's Done channel to close.
+func requireDone(t *testing.T, c client.Client) {
+	t.Helper()
+	<-c.Done()
 }
 
 // failEncodeCodecComponent is a test codec whose Encode always returns an error.
