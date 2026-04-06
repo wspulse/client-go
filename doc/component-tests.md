@@ -19,7 +19,7 @@ deterministic and run with `make check`.
 | 4   | Max retries exhausted, `Done()` closes                              | `TestAutoReconnect_MaxRetriesExhausted_ClosesDone`           | reconnect_test.go   |
 | 5   | `Close()` during reconnect/backoff, loop stops cleanly              | `TestAutoReconnect_CloseDuringBackoff`                       | reconnect_test.go   |
 | 6   | `Send()` on closed client, `ErrConnectionClosed`                    | `TestSend_AfterClose_ReturnsErrConnectionClosed`             | basic_test.go       |
-| 7   | Heartbeat pong timeout, client disconnects with non-nil error       | `TestHeartbeatPongTimeout_DisconnectsClient`                 | misc_test.go        |
+| 7   | Heartbeat ping then read error, client disconnects with non-nil error | `TestHeartbeatPongTimeout_DisconnectsClient`                 | misc_test.go        |
 | 8   | Concurrent sends: no data race or interleaving                      | `TestConcurrentSendAndClose_NoRace`                          | lifecycle_test.go   |
 | 9   | Concurrent `Close()` + transport drop, `onDisconnect` exactly once  | `TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce`| lifecycle_test.go   |
 
