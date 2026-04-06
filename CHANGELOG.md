@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `writePump` now checks `c.done` before draining `c.send`, ensuring buffered frames are discarded on `Close()` per the behaviour contract
+
 ---
 
 ## [0.5.0] - 2026-04-04
