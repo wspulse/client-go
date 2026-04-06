@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+---
+
+## [0.5.0] - 2026-04-04
+
+### Added
+
+- `WithSendBufferSize(n int)` option — configurable outbound channel capacity [1, 4096], default 256
+- `Dial` auto-converts `http://` to `ws://` and `https://` to `wss://` (case-insensitive per RFC 3986). Other schemes are passed through to the underlying WebSocket dialer.
+
+### Changed
+
+- Extracted `Transport` interface and test-only `WithDialer` support for mock-based testing
+- Migrated all tests to deterministic component tests using mock transport — zero network I/O
+- Adopted `testify` for test assertions
+
+### Removed
+
+- **BREAKING**: `Frame.ID` field removed — transport layer does not use it. Applications needing message IDs should use Payload.
+
+---
+
 ## [0.4.1] - 2026-03-28
 
 ### Changed
@@ -101,7 +124,8 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/wspulse/client-go/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/wspulse/client-go/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/wspulse/client-go/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/wspulse/client-go/compare/v0.2.2...v0.3.0

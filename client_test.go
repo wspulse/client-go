@@ -6,45 +6,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/wspulse/client-go"
 	wspulse "github.com/wspulse/core"
 )
 
+func TestNormalizeScheme(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"ws passthrough", "ws://host/ws", "ws://host/ws"},
+		{"wss passthrough", "wss://host/ws", "wss://host/ws"},
+		{"http to ws", "http://host/ws", "ws://host/ws"},
+		{"https to wss", "https://host/ws", "wss://host/ws"},
+		{"http with port", "http://host:8080/ws", "ws://host:8080/ws"},
+		{"https with port and query", "https://host:443/ws?token=abc", "wss://host:443/ws?token=abc"},
+		{"https with fragment", "https://host/ws#section", "wss://host/ws#section"},
+		{"HTTP uppercase", "HTTP://host/ws", "ws://host/ws"},
+		{"HTTPS uppercase", "HTTPS://host/ws", "wss://host/ws"},
+		{"Http mixed case", "Http://host/ws", "ws://host/ws"},
+		{"unsupported scheme passthrough", "ftp://host/ws", "ftp://host/ws"},
+		{"missing scheme passthrough", "host/ws", "host/ws"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := client.NormalizeScheme(tc.input)
+			assert.Equal(t, tc.want, got, "NormalizeScheme(%q)", tc.input)
+		})
+	}
+}
+
 func TestDial_ReturnsErrorOnBadURL(t *testing.T) {
 	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
-	if err == nil {
-		t.Error("expected error dialing unreachable server, got nil")
-	}
+	assert.Error(t, err, "expected error dialing unreachable server")
 }
 
 func TestDial_ErrorFormat(t *testing.T) {
 	t.Parallel()
 	_, err := client.Dial("ws://localhost:0/no-such-server")
-	if err == nil {
-		t.Fatal("expected error dialing unreachable server, got nil")
-	}
+	require.Error(t, err, "expected error dialing unreachable server")
 	const wantPrefix = "wspulse: dial: "
-	if !strings.HasPrefix(err.Error(), wantPrefix) {
-		t.Errorf("error format: want prefix %q, got %q", wantPrefix, err.Error())
-	}
-	if errors.Unwrap(err) == nil {
-		t.Error("Dial error must wrap the underlying dial error")
-	}
+	assert.True(t, strings.HasPrefix(err.Error(), wantPrefix),
+		"error format: want prefix %q, got %q", wantPrefix, err.Error())
+	assert.NotNil(t, errors.Unwrap(err), "Dial error must wrap the underlying dial error")
 }
 
 func TestClient_WithCodec_Nil_Panics(t *testing.T) {
 	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic on nil codec, got none")
-		}
-		if msg, ok := r.(string); !ok || msg != "wspulse: codec must not be nil" {
-			t.Fatalf("unexpected panic message: %v", r)
-		}
-	}()
-	_ = client.WithCodec(nil)
+	require.PanicsWithValue(t, "wspulse: codec must not be nil", func() {
+		_ = client.WithCodec(nil)
+	})
 }
 
 func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
@@ -65,17 +82,38 @@ func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				r := recover()
-				if r == nil {
-					t.Fatal("expected panic")
-				}
-				if msg, ok := r.(string); !ok || msg != tc.wantMsg {
-					t.Fatalf("panic message = %v, want %q", r, tc.wantMsg)
-				}
-			}()
-			_ = client.WithHeartbeat(tc.ping, tc.pong, tc.writeW)
+			require.PanicsWithValue(t, tc.wantMsg, func() {
+				_ = client.WithHeartbeat(tc.ping, tc.pong, tc.writeW)
+			})
 		})
+	}
+}
+
+func TestClient_WithSendBufferSize_InvalidParam_Panics(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		n       int
+		wantMsg string
+	}{
+		{"zero", 0, "wspulse: sendBufferSize must be at least 1"},
+		{"negative", -1, "wspulse: sendBufferSize must be at least 1"},
+		{"exceeds max", 4097, "wspulse: sendBufferSize exceeds maximum (4096)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.PanicsWithValue(t, tc.wantMsg, func() {
+				client.WithSendBufferSize(tc.n)
+			})
+		})
+	}
+}
+
+func TestClient_WithSendBufferSize_ValidValues(t *testing.T) {
+	t.Parallel()
+	for _, n := range []int{1, 256, 4096} {
+		// Should not panic.
+		client.WithSendBufferSize(n)
 	}
 }
 
@@ -91,32 +129,18 @@ func TestClient_WithMaxMessageSize_InvalidParam_Panics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				r := recover()
-				if r == nil {
-					t.Fatal("expected panic")
-				}
-				if msg, ok := r.(string); !ok || msg != tc.wantMsg {
-					t.Fatalf("panic message = %v, want %q", r, tc.wantMsg)
-				}
-			}()
-			client.WithMaxMessageSize(tc.n)
+			require.PanicsWithValue(t, tc.wantMsg, func() {
+				client.WithMaxMessageSize(tc.n)
+			})
 		})
 	}
 }
 
 func TestClient_WithLogger_Nil_Panics(t *testing.T) {
 	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for WithLogger(nil)")
-		}
-		if msg, ok := r.(string); !ok || msg != "wspulse: logger must not be nil" {
-			t.Fatalf("unexpected panic message: %v", r)
-		}
-	}()
-	client.WithLogger(nil)
+	require.PanicsWithValue(t, "wspulse: logger must not be nil", func() {
+		client.WithLogger(nil)
+	})
 }
 
 func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
@@ -137,16 +161,9 @@ func TestClient_WithAutoReconnect_InvalidParams_Panics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				r := recover()
-				if r == nil {
-					t.Fatal("expected panic")
-				}
-				if msg, ok := r.(string); !ok || msg != tc.wantMsg {
-					t.Fatalf("panic message = %v, want %q", r, tc.wantMsg)
-				}
-			}()
-			_ = client.WithAutoReconnect(tc.maxRetries, tc.base, tc.max)
+			require.PanicsWithValue(t, tc.wantMsg, func() {
+				_ = client.WithAutoReconnect(tc.maxRetries, tc.base, tc.max)
+			})
 		})
 	}
 }
@@ -165,9 +182,7 @@ func TestClient_WithAutoReconnect_ValidParams_NoPanic(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opt := client.WithAutoReconnect(tc.maxRetries, tc.base, tc.max)
-			if opt == nil {
-				t.Fatal("expected non-nil option")
-			}
+			require.NotNil(t, opt)
 		})
 	}
 }
@@ -183,9 +198,7 @@ func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
 		client.WithOnTransportRestore(func() {}),
 	}
 	for _, opt := range opts {
-		if opt == nil {
-			t.Error("option function returned nil")
-		}
+		assert.NotNil(t, opt, "option function returned nil")
 	}
 }
 
@@ -193,41 +206,31 @@ func TestClient_WithOnMessage_Nil_NoPanic(t *testing.T) {
 	t.Parallel()
 	// Nil callbacks should not panic at option construction time.
 	opt := client.WithOnMessage(nil)
-	if opt == nil {
-		t.Error("expected non-nil option")
-	}
+	assert.NotNil(t, opt)
 }
 
 func TestClient_WithOnTransportRestore_Nil_NoPanic(t *testing.T) {
 	t.Parallel()
 	opt := client.WithOnTransportRestore(nil)
-	if opt == nil {
-		t.Error("expected non-nil option")
-	}
+	assert.NotNil(t, opt)
 }
 
 func TestClient_WithOnDisconnect_Nil_NoPanic(t *testing.T) {
 	t.Parallel()
 	opt := client.WithOnDisconnect(nil)
-	if opt == nil {
-		t.Error("expected non-nil option")
-	}
+	assert.NotNil(t, opt)
 }
 
 func TestClient_WithOnTransportDrop_Nil_NoPanic(t *testing.T) {
 	t.Parallel()
 	opt := client.WithOnTransportDrop(nil)
-	if opt == nil {
-		t.Error("expected non-nil option")
-	}
+	assert.NotNil(t, opt)
 }
 
 func TestClient_WithDialHeaders_Nil_NoPanic(t *testing.T) {
 	t.Parallel()
 	opt := client.WithDialHeaders(nil)
-	if opt == nil {
-		t.Error("expected non-nil option")
-	}
+	assert.NotNil(t, opt)
 }
 
 func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
@@ -244,9 +247,7 @@ func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opt := client.WithMaxMessageSize(tc.n)
-			if opt == nil {
-				t.Error("expected non-nil option")
-			}
+			assert.NotNil(t, opt)
 		})
 	}
 }
@@ -264,9 +265,7 @@ func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opt := client.WithHeartbeat(tc.ping, tc.pong, tc.writeW)
-			if opt == nil {
-				t.Error("expected non-nil option")
-			}
+			assert.NotNil(t, opt)
 		})
 	}
 }

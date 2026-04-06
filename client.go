@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,7 +51,9 @@ type internalClient struct {
 	url                string
 	config             *clientConfig
 	logger             *zap.Logger
-	connection         *websocket.Conn
+	dialer             dialer
+	clock              clock
+	connection         wspulse.Transport
 	send               chan []byte
 	done               chan struct{}  // closed via once.Do on permanent disconnect
 	quit               chan struct{}  // closed together with done via once.Do
@@ -63,7 +66,13 @@ type internalClient struct {
 
 // Dial connects to urlStr and returns a Client.
 // If WithAutoReconnect is configured, reconnection runs in the background.
+//
+// Accepted URL schemes: ws://, wss://, http://, https://.
+// HTTP schemes are automatically converted to their WebSocket equivalents
+// (http → ws, https → wss). Invalid or unsupported schemes are passed
+// through and will be rejected by the underlying WebSocket dialer.
 func Dial(urlStr string, opts ...ClientOption) (Client, error) {
+	urlStr = normalizeScheme(urlStr)
 	config := defaultClientConfig()
 	for _, o := range opts {
 		o(config)
@@ -74,7 +83,9 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		url:            urlStr,
 		config:         config,
 		logger:         config.logger,
-		send:           make(chan []byte, 256),
+		dialer:         config.dialer,
+		clock:          config.clock,
+		send:           make(chan []byte, config.sendBufferSize),
 		done:           make(chan struct{}),
 		quit:           make(chan struct{}),
 		connectionQuit: connectionQuit,
@@ -88,8 +99,9 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	)
 	dropped := make(chan struct{})
 	c.goroutineWaitGroup.Add(3)
-	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(connectionQuit, pumpDone) }()
-	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
+	conn := c.connection
+	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, connectionQuit, pumpDone) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
 	if config.autoReconnect {
 		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
@@ -171,20 +183,17 @@ func (c *internalClient) Done() <-chan struct{} { return c.done }
 // ── internal ──────────────────────────────────────────────────────────────────
 
 func (c *internalClient) dialOnce() error {
-	wsConnection, _, err := websocket.DefaultDialer.Dial(c.url, c.config.dialHeaders)
+	transport, err := c.dialer.Dial(c.url, c.config.dialHeaders)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	c.connection = wsConnection
+	c.connection = transport
 	c.mu.Unlock()
 	return nil
 }
 
-func (c *internalClient) readPump(dropped chan struct{}) {
-	c.mu.Lock()
-	wsConnection := c.connection
-	c.mu.Unlock()
+func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan struct{}) {
 
 	var readErr error
 
@@ -196,7 +205,6 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 			)
 		}
 		_ = wsConnection.Close()
-		close(dropped)
 
 		c.logger.Debug("wspulse: connection lost",
 			zap.Error(readErr),
@@ -205,6 +213,8 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 		if fn := c.config.onTransportDrop; fn != nil {
 			fn(readErr)
 		}
+
+		close(dropped)
 	}()
 
 	pongWait := c.config.pongWait
@@ -235,15 +245,12 @@ func (c *internalClient) readPump(dropped chan struct{}) {
 	}
 }
 
-func (c *internalClient) writePump(connectionQuit chan struct{}, pumpDone chan struct{}) {
-	c.mu.Lock()
-	wsConnection := c.connection
-	c.mu.Unlock()
+func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQuit chan struct{}, pumpDone chan struct{}) {
 
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
 
-	ticker := c.config.clock.NewTicker(pingPeriod)
+	ticker := c.clock.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = wsConnection.Close()
@@ -326,7 +333,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.Duration("delay", delay),
 		)
-		backoffTimer := c.config.clock.NewTimer(delay)
+		backoffTimer := c.clock.NewTimer(delay)
 		select {
 		case <-c.quit:
 			backoffTimer.Stop()
@@ -367,14 +374,28 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		newPumpDone := make(chan struct{})
 		c.connectionQuit = newQuit
 		c.pumpDone = newPumpDone
+		conn := c.connection
 		c.mu.Unlock()
 
 		close(oldQuit)
 		<-oldPumpDone
 
+		// Guard: if Close() was called while we were waiting for the old
+		// pumps to drain, skip launching new ones to avoid wasted work.
+		// Note: a panic from Add-concurrent-with-Wait is impossible here
+		// because reconnectLoop itself holds one WaitGroup count, keeping
+		// the counter ≥ 1 until this function returns.
+		select {
+		case <-c.quit:
+			c.logger.Debug("wspulse: quit before starting fresh pumps, closing fresh connection")
+			_ = conn.Close()
+			return
+		default:
+		}
+
 		c.goroutineWaitGroup.Add(2)
-		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newQuit, newPumpDone) }()
-		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(dropped) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
 		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
@@ -383,6 +404,25 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		if fn := c.config.onTransportRestore; fn != nil {
 			fn()
 		}
+	}
+}
+
+// normalizeScheme converts http/https URL schemes to their WebSocket
+// equivalents (http → ws, https → wss). All other URLs are returned
+// unchanged — gorilla/websocket already validates schemes at dial
+// time and returns a catchable error, so we avoid duplicating that.
+func normalizeScheme(rawURL string) string {
+	if len(rawURL) < 8 {
+		return rawURL
+	}
+	lower := strings.ToLower(rawURL[:8])
+	switch {
+	case strings.HasPrefix(lower, "https://"):
+		return "wss://" + rawURL[len("https://"):]
+	case strings.HasPrefix(lower, "http://"):
+		return "ws://" + rawURL[len("http://"):]
+	default:
+		return rawURL
 	}
 }
 

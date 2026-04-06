@@ -3,6 +3,9 @@ package client
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBackoff_DoublesEachAttempt(t *testing.T) {
@@ -13,9 +16,8 @@ func TestBackoff_DoublesEachAttempt(t *testing.T) {
 		fullDelay := base * time.Duration(1<<uint(i))
 		half := fullDelay / 2
 		got := backoff(i, base, max)
-		if got < half || got > fullDelay {
-			t.Fatalf("attempt %d: want [%v, %v], got %v", i, half, fullDelay, got)
-		}
+		require.GreaterOrEqual(t, got, half, "attempt %d: got %v, want >= %v", i, got, half)
+		require.LessOrEqual(t, got, fullDelay, "attempt %d: got %v, want <= %v", i, got, fullDelay)
 	}
 }
 
@@ -25,9 +27,8 @@ func TestBackoff_CappedAtMax(t *testing.T) {
 	max := 5 * time.Second
 	half := max / 2
 	got := backoff(10, base, max)
-	if got < half || got > max {
-		t.Fatalf("want [%v, %v], got %v", half, max, got)
-	}
+	require.GreaterOrEqual(t, got, half, "got %v, want >= %v", got, half)
+	require.LessOrEqual(t, got, max, "got %v, want <= %v", got, max)
 }
 
 func TestBackoff_AttemptAbove62_CapsAtMaxShift(t *testing.T) {
@@ -35,13 +36,11 @@ func TestBackoff_AttemptAbove62_CapsAtMaxShift(t *testing.T) {
 	max := 30 * time.Second
 	half := max / 2
 	got := backoff(63, base, max)
-	if got < half || got > max {
-		t.Fatalf("attempt=63: want [%v, %v], got %v", half, max, got)
-	}
+	require.GreaterOrEqual(t, got, half, "attempt=63: got %v, want >= %v", got, half)
+	require.LessOrEqual(t, got, max, "attempt=63: got %v, want <= %v", got, max)
 	got100 := backoff(100, base, max)
-	if got100 < half || got100 > max {
-		t.Fatalf("attempt=100: want [%v, %v], got %v", half, max, got100)
-	}
+	require.GreaterOrEqual(t, got100, half, "attempt=100: got %v, want >= %v", got100, half)
+	require.LessOrEqual(t, got100, max, "attempt=100: got %v, want <= %v", got100, max)
 }
 
 func TestBackoff_OverflowToNegative_CapsAtMax(t *testing.T) {
@@ -50,9 +49,8 @@ func TestBackoff_OverflowToNegative_CapsAtMax(t *testing.T) {
 	max := 30 * time.Second
 	half := max / 2
 	got := backoff(62, base, max)
-	if got < half || got > max {
-		t.Fatalf("overflow case: want [%v, %v], got %v", half, max, got)
-	}
+	require.GreaterOrEqual(t, got, half, "overflow case: got %v, want >= %v", got, half)
+	require.LessOrEqual(t, got, max, "overflow case: got %v, want <= %v", got, max)
 }
 
 func TestBackoff_ZeroAttempt_ReturnsBase(t *testing.T) {
@@ -61,9 +59,8 @@ func TestBackoff_ZeroAttempt_ReturnsBase(t *testing.T) {
 	max := 30 * time.Second
 	half := base / 2
 	got := backoff(0, base, max)
-	if got < half || got > base {
-		t.Fatalf("attempt=0: want [%v, %v], got %v", half, base, got)
-	}
+	require.GreaterOrEqual(t, got, half, "attempt=0: got %v, want >= %v", got, half)
+	require.LessOrEqual(t, got, base, "attempt=0: got %v, want <= %v", got, base)
 }
 
 func TestBackoff_HasJitter(t *testing.T) {
@@ -77,9 +74,7 @@ func TestBackoff_HasJitter(t *testing.T) {
 		d := backoff(attempt, base, max)
 		seen[d] = true
 	}
-	if len(seen) < 2 {
-		t.Fatalf("backoff returned identical value %d times — no jitter", 100)
-	}
+	assert.GreaterOrEqual(t, len(seen), 2, "backoff returned identical value 100 times — no jitter")
 }
 
 func TestBackoff_JitterWithinRange(t *testing.T) {
@@ -92,8 +87,7 @@ func TestBackoff_JitterWithinRange(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		d := backoff(attempt, base, max)
-		if d < half || d > fullDelay {
-			t.Fatalf("attempt %d: want d in [%v, %v], got %v", attempt, half, fullDelay, d)
-		}
+		require.GreaterOrEqual(t, d, half, "attempt %d, iter %d: got %v, want >= %v", attempt, i, d, half)
+		require.LessOrEqual(t, d, fullDelay, "attempt %d, iter %d: got %v, want <= %v", attempt, i, d, fullDelay)
 	}
 }
