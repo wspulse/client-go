@@ -91,6 +91,10 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 		client.WithSendBufferSize(bufSize),
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		unblock()
+		_ = c.Close()
+	})
 
 	// Send one frame — writePump picks it from c.send and blocks in WriteMessage.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "first"}))
