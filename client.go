@@ -250,6 +250,13 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
 
+	sendClose := func() {
+		_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
+		_ = wsConnection.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		)
+	}
+
 	ticker := c.clock.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -258,9 +265,20 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 	}()
 
 	for {
+		// Reconnect priority check — yield immediately so the new
+		// writePump can take over on a fresh connection.
 		select {
 		case <-connectionQuit:
 			c.logger.Debug("wspulse: writePump yielding for reconnect (priority)")
+			return
+		default:
+		}
+
+		// Close priority check — discard buffered frames on shutdown.
+		select {
+		case <-c.done:
+			c.logger.Debug("wspulse: writePump stopping (client closed)")
+			sendClose()
 			return
 		default:
 		}
@@ -286,10 +304,7 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
-			_ = wsConnection.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			)
+			sendClose()
 			return
 
 		case <-connectionQuit:

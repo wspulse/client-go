@@ -25,6 +25,7 @@ type mockTransport struct {
 	mu           sync.Mutex
 	readLimit    int64
 	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
+	writeEntered chan struct{} // when non-nil, signaled each time WriteMessage is entered (before blocking)
 	pongHandler  func(string) error
 	closed       bool
 }
@@ -65,7 +66,16 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
 	}
 	blockCh := m.blockCh
+	writeEntered := m.writeEntered
 	m.mu.Unlock()
+
+	// Signal entry before blocking so tests can synchronize.
+	if writeEntered != nil {
+		select {
+		case writeEntered <- struct{}{}:
+		default:
+		}
+	}
 
 	// When blockCh is set, block until unblock is called or the transport
 	// is closed. After unblock, blockCh is cleared so writes resume normally.
