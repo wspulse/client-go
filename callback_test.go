@@ -157,6 +157,64 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	assert.Equal(t, 1, dc, "onDisconnect fired count")
 }
 
+// ── onTransportDrop error value ──────────────────────────────────────────────
+
+func TestOnTransportDrop_NilOnClose(t *testing.T) {
+	t.Parallel()
+	transportDropErr := make(chan error, 1)
+	c, _, _ := dialWithMock(t,
+		client.WithOnTransportDrop(func(err error) {
+			transportDropErr <- err
+		}),
+	)
+
+	_ = c.Close()
+
+	got := requireReceive(t, transportDropErr)
+	assert.NoError(t, got, "onTransportDrop should receive nil on user-initiated Close()")
+}
+
+func TestOnTransportDrop_NilOnClose_AutoReconnect(t *testing.T) {
+	t.Parallel()
+	mt := newMockTransport()
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	transportDropErr := make(chan error, 1)
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithAutoReconnect(3, 100*time.Millisecond, 500*time.Millisecond),
+		client.WithOnTransportDrop(func(err error) {
+			transportDropErr <- err
+		}),
+	)
+	require.NoError(t, err, "Dial failed")
+
+	_ = c.Close()
+
+	got := requireReceive(t, transportDropErr)
+	assert.NoError(t, got, "onTransportDrop should receive nil on user-initiated Close() with auto-reconnect")
+}
+
+func TestOnTransportDrop_NonNilOnServerDrop(t *testing.T) {
+	t.Parallel()
+	transportDropErr := make(chan error, 1)
+	c, mt, _ := dialWithMock(t,
+		client.WithOnTransportDrop(func(err error) {
+			transportDropErr <- err
+		}),
+	)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Simulate server dropping the connection.
+	injectedErr := &net.OpError{Op: "read", Err: errors.New("connection reset")}
+	mt.InjectError(injectedErr)
+
+	got := requireReceive(t, transportDropErr)
+	assert.Error(t, got, "onTransportDrop should receive non-nil error on server-initiated drop")
+}
+
 func TestOnTransportDrop_FiresOnReconnect(t *testing.T) {
 	t.Parallel()
 	mt1 := newMockTransport()
