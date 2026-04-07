@@ -27,6 +27,7 @@ type mockTransport struct {
 	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
 	writeEntered chan struct{} // when non-nil, signaled each time WriteMessage is entered (before blocking)
 	pongHandler  func(string) error
+	writeErr     error // when non-nil, WriteMessage returns this error immediately
 	closed       bool
 }
 
@@ -64,6 +65,11 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 	if m.closed {
 		m.mu.Unlock()
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
+	}
+	if m.writeErr != nil {
+		err := m.writeErr
+		m.mu.Unlock()
+		return err
 	}
 	blockCh := m.blockCh
 	writeEntered := m.writeEntered
@@ -149,6 +155,13 @@ func (m *mockTransport) BlockWrites() (unblock func()) {
 			close(ch)
 		})
 	}
+}
+
+// SetWriteError causes all subsequent WriteMessage calls to return err.
+func (m *mockTransport) SetWriteError(err error) {
+	m.mu.Lock()
+	m.writeErr = err
+	m.mu.Unlock()
 }
 
 // InjectMessage simulates a message from the server.
