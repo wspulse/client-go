@@ -98,10 +98,11 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 		zap.String("url", urlStr),
 	)
 	dropped := make(chan struct{})
+	writeErrCh := make(chan error, 1)
 	c.goroutineWaitGroup.Add(3)
 	conn := c.connection
-	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, connectionQuit, pumpDone) }()
-	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, connectionQuit, pumpDone, writeErrCh) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped, writeErrCh) }()
 	if config.autoReconnect {
 		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
@@ -193,7 +194,7 @@ func (c *internalClient) dialOnce() error {
 	return nil
 }
 
-func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan struct{}) {
+func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error) {
 
 	var readErr error
 
@@ -206,12 +207,19 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		}
 		_ = wsConnection.Close()
 
-		// User-initiated close → onTransportDrop(nil) per behaviour contract.
-		// Same pattern as the no-reconnect goroutine's onDisconnect check.
+		// Determine the root-cause error for onTransportDrop:
+		//   1. User-initiated close → nil (behaviour contract).
+		//   2. writePump reported an error → use it (root cause).
+		//   3. Otherwise → readPump's own readErr.
 		select {
 		case <-c.done:
 			readErr = nil
 		default:
+			select {
+			case writeErr := <-writeErrCh:
+				readErr = writeErr
+			default:
+			}
 		}
 
 		c.logger.Debug("wspulse: connection lost",
@@ -253,7 +261,7 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 	}
 }
 
-func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQuit chan struct{}, pumpDone chan struct{}) {
+func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQuit chan struct{}, pumpDone chan struct{}, writeErrCh chan<- error) {
 
 	writeWait := c.config.writeWait
 	pingPeriod := c.config.pingPeriod
@@ -298,6 +306,10 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 				c.logger.Warn("wspulse: write failed",
 					zap.Error(err),
 				)
+				select {
+				case writeErrCh <- err:
+				default:
+				}
 				return
 			}
 
@@ -307,6 +319,10 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 				c.logger.Warn("wspulse: ping write failed",
 					zap.Error(err),
 				)
+				select {
+				case writeErrCh <- err:
+				default:
+				}
 				return
 			}
 
@@ -416,9 +432,10 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		default:
 		}
 
+		newWriteErrCh := make(chan error, 1)
 		c.goroutineWaitGroup.Add(2)
-		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone) }()
-		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone, newWriteErrCh) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped, newWriteErrCh) }()
 		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
