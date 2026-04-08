@@ -14,12 +14,12 @@ deterministic and run with `make check`.
 | #   | Scenario                                                            | Test Name                                                    | File                |
 | --- | ------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------- |
 | 1   | Connect, send, echo, close clean                                    | `TestSendAndReceive`                                         | basic_test.go       |
-| 2   | Server drops, onTransportDrop + onDisconnect (no reconnect)         | `TestOnDisconnect_IsErrConnectionLostOnServerDrop`           | callback_test.go    |
+| 2   | Server drops, onTransportDrop + onDisconnect (no reconnect)         | `TestOnDisconnect_IsErrConnectionLostOnServerDrop`, `TestOnTransportDrop_NonNilOnServerDrop` | callback_test.go    |
 | 3   | Auto-reconnect: server drops, reconnects within maxRetries          | `TestAutoReconnect_ReconnectsAndDeliversMessages`            | reconnect_test.go   |
 | 4   | Max retries exhausted, `Done()` closes                              | `TestAutoReconnect_MaxRetriesExhausted_ClosesDone`           | reconnect_test.go   |
 | 5   | `Close()` during reconnect/backoff, loop stops cleanly              | `TestAutoReconnect_CloseDuringBackoff`                       | reconnect_test.go   |
 | 6   | `Send()` on closed client, `ErrConnectionClosed`                    | `TestSend_AfterClose_ReturnsErrConnectionClosed`             | basic_test.go       |
-| 7   | Heartbeat ping then read error, client disconnects with non-nil error | `TestHeartbeatPongTimeout_DisconnectsClient`                 | misc_test.go        |
+| 7   | Heartbeat ping then read error, client disconnects with non-nil error | `TestHeartbeat_ReadError_DisconnectsClient`                  | misc_test.go        |
 | 8   | Concurrent sends: no data race or interleaving                      | `TestConcurrentSendAndClose_NoRace`                          | lifecycle_test.go   |
 | 9   | Concurrent `Close()` + transport drop, `onDisconnect` exactly once  | `TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce`| lifecycle_test.go   |
 
@@ -43,7 +43,7 @@ deterministic and run with `make check`.
 | `TestOnDisconnect_NonNilOnServerDrop`              | `onDisconnect` receives non-nil error on server drop               |
 | `TestOnDisconnect_NonNilOnMaxRetries`              | `onDisconnect` receives non-nil error when retries exhausted       |
 | `TestClose_OnDisconnectFiresExactlyOnce`           | `onDisconnect` fires exactly once on `Close()`                     |
-| `TestOnTransportDrop_FiresOnReconnect`             | `onTransportDrop` fires when transport drops (autoReconnect)       |
+| `TestOnTransportDrop_Fires_WithAutoReconnect`      | `onTransportDrop` fires when transport drops (autoReconnect)       |
 | `TestOnTransportRestore_FiresAfterReconnect`       | `onTransportRestore` fires after successful reconnect              |
 | `TestOnTransportRestore_DoesNotFireOnInitialConnect`| `onTransportRestore` does not fire on first connect               |
 | `TestOnTransportRestore_NotFiredOnFailedReconnect` | `onTransportRestore` does not fire when reconnect fails            |
