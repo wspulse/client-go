@@ -301,23 +301,34 @@ func TestOnTransportDrop_ReadError_NotOverriddenByCloseInducedWriteError(t *test
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Block writes and send a frame so writePump enters WriteMessage and blocks.
-	unblock := mt.BlockWrites()
+	rawUnblock := mt.BlockWrites()
+	var unblockOnce sync.Once
+	unblock := func() { unblockOnce.Do(rawUnblock) }
 	defer unblock()
 	require.NoError(t, c.Send(wspulse.Frame{Event: "trigger"}))
 	<-mt.writeEntered // writePump is now blocked mid-WriteMessage
 
+	closeStarted := make(chan struct{})
+	writeReleased := make(chan struct{})
+
 	// closeHook runs inside Close() after closeCh is closed but before
-	// Close() returns. The sleep gives writePump time to wake up and send
-	// the close-induced write error on writeErrCh.
+	// Close() returns. It signals closeStarted, then waits for the blocked
+	// write to be released — ensuring writePump's close-induced error lands
+	// on writeErrCh before Close() returns. Zero real-time sleeps.
 	mt.closeHook = func() {
-		time.Sleep(10 * time.Millisecond)
+		close(closeStarted)
+		<-writeReleased
 	}
+	go func() {
+		<-closeStarted
+		unblock() // release blocked WriteMessage → returns net.ErrClosed → sends on writeErrCh
+		close(writeReleased)
+	}()
 
 	// Inject read error — readPump fails first.
-	// readPump's defer calls Close() → closeCh closes → writePump wakes up,
-	// WriteMessage returns net.ErrClosed, sends it on writeErrCh.
-	// closeHook delays Close() return so the spurious error lands before
-	// readPump checks writeErrCh.
+	// readPump's defer calls Close() → closeCh closes → closeHook fires →
+	// helper goroutine unblocks writePump → writePump sends close-induced
+	// error on writeErrCh → closeHook returns → Close() returns.
 	mt.InjectError(injectedReadErr)
 
 	got := requireReceive(t, transportDropErr)
