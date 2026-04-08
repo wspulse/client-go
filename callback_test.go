@@ -280,6 +280,62 @@ func TestOnTransportDrop_ReadError_NoWriteError(t *testing.T) {
 	assert.ErrorIs(t, got, readErr, "onTransportDrop should receive readPump's own error when no write error exists")
 }
 
+func TestOnTransportDrop_ReadError_NotOverriddenByCloseInducedWriteError(t *testing.T) {
+	t.Parallel()
+	injectedReadErr := errors.New("server connection reset")
+
+	mt := newMockTransport()
+	mt.writeEntered = make(chan struct{}, 1)
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	transportDropErr := make(chan error, 1)
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithOnTransportDrop(func(err error) {
+			transportDropErr <- err
+		}),
+	)
+	require.NoError(t, err, "Dial failed")
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Block writes and send a frame so writePump enters WriteMessage and blocks.
+	rawUnblock := mt.BlockWrites()
+	var unblockOnce sync.Once
+	unblock := func() { unblockOnce.Do(rawUnblock) }
+	defer unblock()
+	require.NoError(t, c.Send(wspulse.Frame{Event: "trigger"}))
+	<-mt.writeEntered // writePump is now blocked mid-WriteMessage
+
+	closeStarted := make(chan struct{})
+	writeReleased := make(chan struct{})
+
+	// closeHook runs inside Close() after closeCh is closed but before
+	// Close() returns. It signals closeStarted, then waits for the blocked
+	// write to be released — ensuring writePump's close-induced error lands
+	// on writeErrCh before Close() returns. Zero real-time sleeps.
+	mt.closeHook = func() {
+		close(closeStarted)
+		<-writeReleased
+	}
+	go func() {
+		<-closeStarted
+		unblock() // release blocked WriteMessage → returns net.ErrClosed → sends on writeErrCh
+		close(writeReleased)
+	}()
+
+	// Inject read error — readPump fails first.
+	// readPump's defer calls Close() → closeCh closes → closeHook fires →
+	// helper goroutine unblocks writePump → writePump sends close-induced
+	// error on writeErrCh → closeHook returns → Close() returns.
+	mt.InjectError(injectedReadErr)
+
+	got := requireReceive(t, transportDropErr)
+	assert.ErrorIs(t, got, injectedReadErr,
+		"onTransportDrop should receive the original read error, not a close-induced write error")
+}
+
 func TestOnTransportDrop_WriteError_Reconnect_CleanCycle(t *testing.T) {
 	t.Parallel()
 	writeErr := errors.New("i/o timeout")

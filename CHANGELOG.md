@@ -7,6 +7,7 @@
 - `writePump` now checks `c.done` before draining `c.send`, ensuring buffered frames are discarded on `Close()` per the behaviour contract
 - `onTransportDrop` now receives `nil` when triggered by `Close()`, matching the behaviour contract. Previously it received a misleading read-side error ("use of closed network connection").
 - `onTransportDrop` now receives the original write error when `writePump` fails (e.g. write timeout). Previously the write error was discarded and `onTransportDrop` received a secondary read-side error.
+- Fixed a race where a close-induced write error could override the original read error in `onTransportDrop`. The `writeErrCh` read now happens before `wsConnection.Close()` to prevent spurious override.
 
 ---
 

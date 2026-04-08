@@ -205,6 +205,16 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 				zap.Any("panic", r),
 			)
 		}
+		// Capture any write error BEFORE closing the transport.
+		// If writePump already failed, its error is on the channel.
+		// Reading before Close() prevents a spurious close-induced
+		// write error from overriding the original readErr.
+		var writeErr error
+		select {
+		case writeErr = <-writeErrCh:
+		default:
+		}
+
 		_ = wsConnection.Close()
 
 		// Determine the root-cause error for onTransportDrop:
@@ -215,10 +225,8 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		case <-c.done:
 			readErr = nil
 		default:
-			select {
-			case writeErr := <-writeErrCh:
+			if writeErr != nil {
 				readErr = writeErr
-			default:
 			}
 		}
 
