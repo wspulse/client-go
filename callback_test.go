@@ -280,6 +280,51 @@ func TestOnTransportDrop_ReadError_NoWriteError(t *testing.T) {
 	assert.ErrorIs(t, got, readErr, "onTransportDrop should receive readPump's own error when no write error exists")
 }
 
+func TestOnTransportDrop_ReadError_NotOverriddenByCloseInducedWriteError(t *testing.T) {
+	t.Parallel()
+	injectedReadErr := errors.New("server connection reset")
+
+	mt := newMockTransport()
+	mt.writeEntered = make(chan struct{}, 1)
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	transportDropErr := make(chan error, 1)
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithOnTransportDrop(func(err error) {
+			transportDropErr <- err
+		}),
+	)
+	require.NoError(t, err, "Dial failed")
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Block writes and send a frame so writePump enters WriteMessage and blocks.
+	unblock := mt.BlockWrites()
+	defer unblock()
+	require.NoError(t, c.Send(wspulse.Frame{Event: "trigger"}))
+	<-mt.writeEntered // writePump is now blocked mid-WriteMessage
+
+	// closeHook runs inside Close() after closeCh is closed but before
+	// Close() returns. The sleep gives writePump time to wake up and send
+	// the close-induced write error on writeErrCh.
+	mt.closeHook = func() {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Inject read error — readPump fails first.
+	// readPump's defer calls Close() → closeCh closes → writePump wakes up,
+	// WriteMessage returns net.ErrClosed, sends it on writeErrCh.
+	// closeHook delays Close() return so the spurious error lands before
+	// readPump checks writeErrCh.
+	mt.InjectError(injectedReadErr)
+
+	got := requireReceive(t, transportDropErr)
+	assert.ErrorIs(t, got, injectedReadErr,
+		"onTransportDrop should receive the original read error, not a close-induced write error")
+}
+
 func TestOnTransportDrop_WriteError_Reconnect_CleanCycle(t *testing.T) {
 	t.Parallel()
 	writeErr := errors.New("i/o timeout")

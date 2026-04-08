@@ -27,7 +27,8 @@ type mockTransport struct {
 	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
 	writeEntered chan struct{} // when non-nil, signaled each time WriteMessage is entered (before blocking)
 	pongHandler  func(string) error
-	writeErr     error // when non-nil, WriteMessage returns this error immediately
+	writeErr     error  // when non-nil, WriteMessage returns this error immediately
+	closeHook    func() // when non-nil, runs inside Close() after closeCh is closed but before Close() returns
 	closed       bool
 }
 
@@ -132,8 +133,12 @@ func (m *mockTransport) Close() error {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
+		hook := m.closeHook
 		m.mu.Unlock()
 		close(m.closeCh)
+		if hook != nil {
+			hook()
+		}
 	})
 	return nil
 }
