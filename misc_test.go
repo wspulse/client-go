@@ -118,7 +118,7 @@ func TestSend_EncodeError_ReturnsError(t *testing.T) {
 	require.Error(t, err, "expected encode error")
 }
 
-func TestHeartbeatPongTimeout_DisconnectsClient(t *testing.T) {
+func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 	t.Parallel()
 	// Verifies the observable heartbeat behaviour: the client sends pings
 	// via the heartbeat ticker, and when the transport dies the client disconnects.
