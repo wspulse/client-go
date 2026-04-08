@@ -43,7 +43,7 @@ deterministic and run with `make check`.
 | `TestOnDisconnect_NonNilOnServerDrop`              | `onDisconnect` receives non-nil error on server drop               |
 | `TestOnDisconnect_NonNilOnMaxRetries`              | `onDisconnect` receives non-nil error when retries exhausted       |
 | `TestClose_OnDisconnectFiresExactlyOnce`           | `onDisconnect` fires exactly once on `Close()`                     |
-| `TestOnTransportDrop_Fires_WithAutoReconnect`      | `onTransportDrop` fires when transport drops (autoReconnect)       |
+| `TestOnTransportDrop_Fires_AutoReconnect`           | `onTransportDrop` fires when transport drops (autoReconnect)       |
 | `TestOnTransportRestore_FiresAfterReconnect`       | `onTransportRestore` fires after successful reconnect              |
 | `TestOnTransportRestore_DoesNotFireOnInitialConnect`| `onTransportRestore` does not fire on first connect               |
 | `TestOnTransportRestore_NotFiredOnFailedReconnect` | `onTransportRestore` does not fire when reconnect fails            |

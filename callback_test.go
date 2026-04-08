@@ -383,7 +383,7 @@ func TestOnTransportDrop_WriteError_Reconnect_CleanCycle(t *testing.T) {
 	assert.ErrorIs(t, got2, readErr, "second drop should report read error, not stale write error from first cycle")
 }
 
-func TestOnTransportDrop_Fires_WithAutoReconnect(t *testing.T) {
+func TestOnTransportDrop_Fires_AutoReconnect(t *testing.T) {
 	t.Parallel()
 	mt1 := newMockTransport()
 	mt2 := newMockTransport()
