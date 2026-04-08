@@ -206,6 +206,14 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		}
 		_ = wsConnection.Close()
 
+		// User-initiated close → onTransportDrop(nil) per behaviour contract.
+		// Same pattern as the no-reconnect goroutine's onDisconnect check.
+		select {
+		case <-c.done:
+			readErr = nil
+		default:
+		}
+
 		c.logger.Debug("wspulse: connection lost",
 			zap.Error(readErr),
 		)

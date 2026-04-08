@@ -5,6 +5,7 @@
 ### Fixed
 
 - `writePump` now checks `c.done` before draining `c.send`, ensuring buffered frames are discarded on `Close()` per the behaviour contract
+- `onTransportDrop` now receives `nil` when triggered by `Close()`, matching the behaviour contract. Previously it received a misleading read-side error ("use of closed network connection").
 
 ---
 
