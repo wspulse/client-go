@@ -82,4 +82,4 @@ deterministic and run with `make check`.
 | `TestWithHeartbeat_SendsPings`                     | Ping messages are sent at configured interval                 |
 | `TestWithLogger_ValidLogger_Applied`               | `WithLogger` option is accepted                               |
 
-**Total: 41 component tests** (9 contract scenarios + 32 additional).
+**Total: 41 component tests** (9 contract scenarios + additional per-feature tests).
