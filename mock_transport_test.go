@@ -25,7 +25,10 @@ type mockTransport struct {
 	mu           sync.Mutex
 	readLimit    int64
 	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
+	writeEntered chan struct{} // when non-nil, signaled each time WriteMessage is entered (before blocking)
 	pongHandler  func(string) error
+	writeErr     error  // when non-nil, WriteMessage returns this error immediately
+	closeHook    func() // when non-nil, runs inside Close() after closeCh is closed but before Close() returns
 	closed       bool
 }
 
@@ -64,8 +67,22 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 		m.mu.Unlock()
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
 	}
+	if m.writeErr != nil {
+		err := m.writeErr
+		m.mu.Unlock()
+		return err
+	}
 	blockCh := m.blockCh
+	writeEntered := m.writeEntered
 	m.mu.Unlock()
+
+	// Signal entry before blocking so tests can synchronize.
+	if writeEntered != nil {
+		select {
+		case writeEntered <- struct{}{}:
+		default:
+		}
+	}
 
 	// When blockCh is set, block until unblock is called or the transport
 	// is closed. After unblock, blockCh is cleared so writes resume normally.
@@ -116,8 +133,12 @@ func (m *mockTransport) Close() error {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
+		hook := m.closeHook
 		m.mu.Unlock()
 		close(m.closeCh)
+		if hook != nil {
+			hook()
+		}
 	})
 	return nil
 }
@@ -139,6 +160,13 @@ func (m *mockTransport) BlockWrites() (unblock func()) {
 			close(ch)
 		})
 	}
+}
+
+// SetWriteError causes all subsequent WriteMessage calls to return err.
+func (m *mockTransport) SetWriteError(err error) {
+	m.mu.Lock()
+	m.writeErr = err
+	m.mu.Unlock()
 }
 
 // InjectMessage simulates a message from the server.

@@ -73,6 +73,62 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	assert.Equal(t, "test", wireFrame.Event)
 }
 
+func TestClose_DiscardsBufferedFrames(t *testing.T) {
+	t.Parallel()
+	// Contract: close() discards unsent buffered frames. After Close(),
+	// writePump must write at most 1 data frame (the one in-flight when
+	// c.done fires) before stopping.
+	const bufSize = 8
+	mt := newMockTransport()
+	fc := newFakeClock()
+	mt.writeEntered = make(chan struct{}, 16)
+	unblock := mt.BlockWrites()
+
+	md := newMockDialer(mockDialResult{transport: mt})
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithSendBufferSize(bufSize),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		unblock()
+		_ = c.Close()
+	})
+
+	// Send one frame — writePump picks it from c.send and blocks in WriteMessage.
+	require.NoError(t, c.Send(wspulse.Frame{Event: "first"}))
+	<-mt.writeEntered // writePump is now blocked in WriteMessage
+
+	// Fill the remaining buffer — these frames sit in c.send.
+	for i := 0; i < bufSize-1; i++ {
+		require.NoError(t, c.Send(wspulse.Frame{Event: "buffered"}))
+	}
+
+	// Close in a goroutine — c.done closes immediately, then waits for goroutines.
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- c.Close() }()
+	<-c.Done() // c.done is now closed
+
+	// Unblock the in-flight write — writePump completes it, loops back,
+	// hits the c.done priority check, sends CloseMessage, and exits.
+	unblock()
+	require.NoError(t, <-closeDone)
+
+	// Count data frames written to the transport.
+	writes := mt.DrainWrites()
+	dataFrames := 0
+	for _, w := range writes {
+		if w.messageType == 1 { // TextMessage
+			dataFrames++
+		}
+	}
+	// Priority check guarantees at most 1 data frame (the in-flight one).
+	// The remaining 7 frames in c.send are discarded.
+	require.LessOrEqual(t, dataFrames, 1,
+		"expected at most 1 data frame (in-flight), got %d", dataFrames)
+}
+
 func TestNormalCloseFrame(t *testing.T) {
 	t.Parallel()
 	// When the client calls Close(), writePump should send a WebSocket close

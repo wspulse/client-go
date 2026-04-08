@@ -4,6 +4,17 @@
 
 ---
 
+## [0.5.1] - 2026-04-08
+
+### Fixed
+
+- `writePump` now checks `c.done` before draining `c.send`, ensuring buffered frames are discarded on `Close()` per the behaviour contract
+- `onTransportDrop` now receives `nil` when triggered by `Close()`, matching the behaviour contract. Previously it received a misleading read-side error ("use of closed network connection").
+- `onTransportDrop` now receives the original write error when `writePump` fails (e.g. write timeout). Previously the write error was discarded and `onTransportDrop` received a secondary read-side error.
+- Fixed a race where a close-induced write error could override the original read error in `onTransportDrop`. The `writeErrCh` read now happens before `wsConnection.Close()` to prevent spurious override.
+
+---
+
 ## [0.5.0] - 2026-04-04
 
 ### Added
@@ -124,7 +135,8 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/wspulse/client-go/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/wspulse/client-go/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/wspulse/client-go/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/wspulse/client-go/compare/v0.3.0...v0.4.0
