@@ -234,34 +234,6 @@ func TestOnTransportDrop_WritePumpDataWriteError(t *testing.T) {
 	assert.ErrorIs(t, got, writeErr, "onTransportDrop should receive the write error, not a read-side error")
 }
 
-func TestOnTransportDrop_WritePumpPingWriteError(t *testing.T) {
-	t.Parallel()
-	writeErr := errors.New("i/o timeout")
-	mt := newMockTransport()
-	fc := newFakeClock()
-	md := newMockDialer(mockDialResult{transport: mt})
-
-	transportDropErr := make(chan error, 1)
-	c, err := client.Dial("ws://mock",
-		client.WithDialer(md),
-		client.WithClock(fc),
-		client.WithOnTransportDrop(func(err error) {
-			transportDropErr <- err
-		}),
-	)
-	require.NoError(t, err, "Dial failed")
-	t.Cleanup(func() { _ = c.Close() })
-
-	// Wait for the ticker to be registered, then inject write error and fire tick.
-	<-fc.tickerAdded
-	mt.SetWriteError(writeErr)
-	fc.fireTicker(0)
-
-	got := requireReceive(t, transportDropErr)
-	fc.stopTicker(0)
-	assert.ErrorIs(t, got, writeErr, "onTransportDrop should receive the ping write error, not a read-side error")
-}
-
 func TestOnTransportDrop_ReadError_NoWriteError(t *testing.T) {
 	t.Parallel()
 	readErr := &net.OpError{Op: "read", Err: errors.New("connection reset")}
@@ -300,35 +272,35 @@ func TestOnTransportDrop_ReadError_NotOverriddenByCloseInducedWriteError(t *test
 	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Block writes and send a frame so writePump enters WriteMessage and blocks.
+	// Block writes and send a frame so writePump enters Write and blocks.
 	rawUnblock := mt.BlockWrites()
 	var unblockOnce sync.Once
 	unblock := func() { unblockOnce.Do(rawUnblock) }
 	defer unblock()
 	require.NoError(t, c.Send(wspulse.Frame{Event: "trigger"}))
-	<-mt.writeEntered // writePump is now blocked mid-WriteMessage
+	<-mt.writeEntered // writePump is now blocked mid-Write
 
 	closeStarted := make(chan struct{})
 	writeReleased := make(chan struct{})
 
-	// closeHook runs inside Close() after closeCh is closed but before
-	// Close() returns. It signals closeStarted, then waits for the blocked
+	// closeHook runs inside doClose after closeCh is closed but before
+	// doClose returns. It signals closeStarted, then waits for the blocked
 	// write to be released — ensuring writePump's close-induced error lands
-	// on writeErrCh before Close() returns. Zero real-time sleeps.
+	// on writeErrCh before doClose returns. Zero real-time sleeps.
 	mt.closeHook = func() {
 		close(closeStarted)
 		<-writeReleased
 	}
 	go func() {
 		<-closeStarted
-		unblock() // release blocked WriteMessage → returns net.ErrClosed → sends on writeErrCh
+		unblock() // release blocked Write → returns net.ErrClosed → sends on writeErrCh
 		close(writeReleased)
 	}()
 
 	// Inject read error — readPump fails first.
-	// readPump's defer calls Close() → closeCh closes → closeHook fires →
+	// readPump's defer calls CloseNow() → closeCh closes → closeHook fires →
 	// helper goroutine unblocks writePump → writePump sends close-induced
-	// error on writeErrCh → closeHook returns → Close() returns.
+	// error on writeErrCh → closeHook returns → doClose returns.
 	mt.InjectError(injectedReadErr)
 
 	got := requireReceive(t, transportDropErr)

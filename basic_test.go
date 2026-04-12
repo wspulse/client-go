@@ -62,7 +62,7 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	require.NoError(t, c.Send(frame), "Send failed")
 
 	w := requireReceive(t, mt.writeCh)
-	assert.Equal(t, 1, w.messageType, "messageType") // TextMessage (JSONCodec)
+	assert.Equal(t, wspulse.TextMessage, w.messageType, "messageType")
 
 	// Decode the written data and verify.
 	var wireFrame struct {
@@ -96,9 +96,9 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 		_ = c.Close()
 	})
 
-	// Send one frame — writePump picks it from c.send and blocks in WriteMessage.
+	// Send one frame — writePump picks it from c.send and blocks in Write.
 	require.NoError(t, c.Send(wspulse.Frame{Event: "first"}))
-	<-mt.writeEntered // writePump is now blocked in WriteMessage
+	<-mt.writeEntered // writePump is now blocked in Write
 
 	// Fill the remaining buffer — these frames sit in c.send.
 	for i := 0; i < bufSize-1; i++ {
@@ -111,7 +111,7 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 	<-c.Done() // c.done is now closed
 
 	// Unblock the in-flight write — writePump completes it, loops back,
-	// hits the c.done priority check, sends CloseMessage, and exits.
+	// hits the c.done priority check, and exits.
 	unblock()
 	require.NoError(t, <-closeDone)
 
@@ -119,7 +119,7 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 	writes := mt.DrainWrites()
 	dataFrames := 0
 	for _, w := range writes {
-		if w.messageType == 1 { // TextMessage
+		if w.messageType == wspulse.TextMessage {
 			dataFrames++
 		}
 	}
@@ -132,20 +132,22 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 func TestNormalCloseFrame(t *testing.T) {
 	t.Parallel()
 	// When the client calls Close(), writePump should send a WebSocket close
-	// frame (messageType 8) before exiting.
-	c, mt, _ := dialWithMock(t)
+	// frame with StatusNormalClosure before exiting.
+	mt := newMockTransport()
+	mt.closeCalled = make(chan closeCall, 1)
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+	)
+	require.NoError(t, err)
 
 	_ = c.Close()
 
-	// Close() blocks until writePump exits — drain immediately.
-	writes := mt.DrainWrites()
-
-	foundClose := false
-	for _, w := range writes {
-		if w.messageType == 8 { // CloseMessage
-			foundClose = true
-			break
-		}
-	}
-	assert.True(t, foundClose, "Close() did not produce a WebSocket close frame (messageType=8)")
+	// Close() blocks until writePump exits — check immediately.
+	cc := requireReceive(t, mt.closeCalled)
+	assert.Equal(t, wspulse.StatusNormalClosure, cc.code,
+		"Close() did not produce a close frame with StatusNormalClosure")
 }

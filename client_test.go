@@ -64,26 +64,41 @@ func TestClient_WithCodec_Nil_Panics(t *testing.T) {
 	})
 }
 
-func TestClient_WithHeartbeat_InvalidParams_Panics(t *testing.T) {
+func TestClient_WithPingInterval_InvalidParams_Panics(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name               string
-		ping, pong, writeW time.Duration
-		wantMsg            string
+		name    string
+		d       time.Duration
+		wantMsg string
 	}{
-		{"ping zero", 0, 10 * time.Second, 5 * time.Second, "wspulse: heartbeat.pingPeriod must be positive"},
-		{"pong zero", 5 * time.Second, 0, 5 * time.Second, "wspulse: heartbeat.pongWait must be positive"},
-		{"writeWait zero", 5 * time.Second, 10 * time.Second, 0, "wspulse: writeWait must be positive"},
-		{"ping == pong", 10 * time.Second, 10 * time.Second, 5 * time.Second, "wspulse: heartbeat.pingPeriod must be strictly less than heartbeat.pongWait"},
-		{"ping > pong", 30 * time.Second, 10 * time.Second, 5 * time.Second, "wspulse: heartbeat.pingPeriod must be strictly less than heartbeat.pongWait"},
-		{"ping exceeds max", 2 * time.Minute, 3 * time.Minute, 5 * time.Second, "wspulse: heartbeat.pingPeriod exceeds maximum (1m)"},
-		{"pong exceeds max", 1 * time.Second, 3 * time.Minute, 5 * time.Second, "wspulse: heartbeat.pongWait exceeds maximum (2m)"},
-		{"writeWait exceeds max", 1 * time.Second, 5 * time.Second, 31 * time.Second, "wspulse: writeWait exceeds maximum (30s)"},
+		{"zero", 0, "wspulse: pingInterval must be positive"},
+		{"negative", -1 * time.Second, "wspulse: pingInterval must be positive"},
+		{"exceeds max", 2 * time.Minute, "wspulse: pingInterval exceeds maximum (1m)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.PanicsWithValue(t, tc.wantMsg, func() {
-				_ = client.WithHeartbeat(tc.ping, tc.pong, tc.writeW)
+				_ = client.WithPingInterval(tc.d)
+			})
+		})
+	}
+}
+
+func TestClient_WithWriteTimeout_InvalidParams_Panics(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		d       time.Duration
+		wantMsg string
+	}{
+		{"zero", 0, "wspulse: writeTimeout must be positive"},
+		{"negative", -1 * time.Second, "wspulse: writeTimeout must be positive"},
+		{"exceeds max", 31 * time.Second, "wspulse: writeTimeout exceeds maximum (30s)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.PanicsWithValue(t, tc.wantMsg, func() {
+				_ = client.WithWriteTimeout(tc.d)
 			})
 		})
 	}
@@ -252,19 +267,37 @@ func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
 	}
 }
 
-func TestClient_WithHeartbeat_ValidParams_NoPanic(t *testing.T) {
+func TestClient_WithPingInterval_ValidParams_NoPanic(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name               string
-		ping, pong, writeW time.Duration
+		name string
+		d    time.Duration
 	}{
-		{"typical", 20 * time.Second, 60 * time.Second, 10 * time.Second},
-		{"minimum gap", 1 * time.Millisecond, 2 * time.Millisecond, 1 * time.Millisecond},
-		{"max boundary", 1 * time.Minute, 2 * time.Minute, 30 * time.Second},
+		{"minimum", 1 * time.Millisecond},
+		{"typical", 20 * time.Second},
+		{"maximum", 1 * time.Minute},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			opt := client.WithHeartbeat(tc.ping, tc.pong, tc.writeW)
+			opt := client.WithPingInterval(tc.d)
+			assert.NotNil(t, opt)
+		})
+	}
+}
+
+func TestClient_WithWriteTimeout_ValidParams_NoPanic(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		d    time.Duration
+	}{
+		{"minimum", 1 * time.Millisecond},
+		{"typical", 10 * time.Second},
+		{"maximum", 30 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := client.WithWriteTimeout(tc.d)
 			assert.NotNil(t, opt)
 		})
 	}

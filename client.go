@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -8,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
 	wspulse "github.com/wspulse/core"
@@ -39,14 +39,18 @@ type Client interface {
 // internalClient is the unexported, concrete implementation of Client.
 //
 // Signal channels:
-//   - done            : closed via once.Do on any permanent disconnect (explicit
+//   - done       : closed via once.Do on any permanent disconnect (explicit
 //     Close(), server drop without auto-reconnect, or max retries exhausted);
 //     signals Send() and writePump to stop.
-//   - quit            : closed together with done (same once.Do); signals
+//   - quit       : closed together with done (same once.Do); signals
 //     reconnectLoop to stop.
-//   - connectionQuit  : closed by reconnectLoop when it successfully reconnects,
-//     telling the OLD writePump to yield so the NEW one can take over.
-//     Swapped (replaced with a fresh channel) on each reconnect.
+//
+// Pump lifecycle:
+//   - pumpCancel : cancels the pump context, causing readPump, writePump,
+//     and pingPump to exit. Called on reconnect (to swap pumps) and on
+//     Close() (to shut down permanently).
+//   - pumpDone   : closed by writePump on exit; used by reconnectLoop
+//     to wait for the old pumps before starting new ones.
 type internalClient struct {
 	url                string
 	config             *clientConfig
@@ -55,13 +59,13 @@ type internalClient struct {
 	clock              clock
 	connection         wspulse.Transport
 	send               chan []byte
-	done               chan struct{}  // closed via once.Do on permanent disconnect
-	quit               chan struct{}  // closed together with done via once.Do
-	connectionQuit     chan struct{}  // closed to stop the current writePump; swapped on each reconnect
-	pumpDone           chan struct{}  // closed by writePump on exit; used by reconnectLoop to wait for the old pump
-	mu                 sync.Mutex     // guards connection, connectionQuit, and pumpDone across goroutines
-	once               sync.Once      // ensures Close() logic runs only once
-	goroutineWaitGroup sync.WaitGroup // tracks all internal goroutines so Close() can wait for their exit
+	done               chan struct{}      // closed via once.Do on permanent disconnect
+	quit               chan struct{}      // closed together with done via once.Do
+	pumpDone           chan struct{}      // closed by writePump on exit
+	pumpCancel         context.CancelFunc // cancels pump context to stop all pumps
+	mu                 sync.Mutex         // guards connection, pumpDone, and pumpCancel
+	once               sync.Once          // ensures Close() logic runs only once
+	goroutineWaitGroup sync.WaitGroup     // tracks all internal goroutines so Close() can wait
 }
 
 // Dial connects to urlStr and returns a Client.
@@ -77,32 +81,36 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	for _, o := range opts {
 		o(config)
 	}
-	connectionQuit := make(chan struct{})
-	pumpDone := make(chan struct{})
 	c := &internalClient{
-		url:            urlStr,
-		config:         config,
-		logger:         config.logger,
-		dialer:         config.dialer,
-		clock:          config.clock,
-		send:           make(chan []byte, config.sendBufferSize),
-		done:           make(chan struct{}),
-		quit:           make(chan struct{}),
-		connectionQuit: connectionQuit,
-		pumpDone:       pumpDone,
+		url:    urlStr,
+		config: config,
+		logger: config.logger,
+		dialer: config.dialer,
+		clock:  config.clock,
+		send:   make(chan []byte, config.sendBufferSize),
+		done:   make(chan struct{}),
+		quit:   make(chan struct{}),
 	}
-	if err := c.dialOnce(); err != nil {
+	if err := c.dialOnce(context.Background()); err != nil {
 		return nil, fmt.Errorf("wspulse: dial: %w", err)
 	}
 	c.logger.Debug("wspulse: connected",
 		zap.String("url", urlStr),
 	)
+
+	pumpCtx, pumpCancel := context.WithCancel(context.Background())
+	pumpDone := make(chan struct{})
 	dropped := make(chan struct{})
 	writeErrCh := make(chan error, 1)
-	c.goroutineWaitGroup.Add(3)
 	conn := c.connection
-	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, connectionQuit, pumpDone, writeErrCh) }()
-	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped, writeErrCh) }()
+
+	c.pumpCancel = pumpCancel
+	c.pumpDone = pumpDone
+
+	c.goroutineWaitGroup.Add(4)
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(pumpCtx, conn, dropped, writeErrCh) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(pumpCtx, conn, pumpDone, writeErrCh) }()
+	go func() { defer c.goroutineWaitGroup.Done(); c.pingPump(pumpCtx, conn) }()
 	if config.autoReconnect {
 		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
@@ -123,6 +131,9 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
+				c.mu.Lock()
+				c.pumpCancel()
+				c.mu.Unlock()
 			})
 			if fn := c.config.onDisconnect; fn != nil {
 				fn(disconnectErr)
@@ -173,6 +184,9 @@ func (c *internalClient) Close() error {
 		)
 		close(c.done)
 		close(c.quit)
+		c.mu.Lock()
+		c.pumpCancel()
+		c.mu.Unlock()
 	})
 	c.goroutineWaitGroup.Wait()
 	return nil
@@ -183,8 +197,8 @@ func (c *internalClient) Done() <-chan struct{} { return c.done }
 
 // ── internal ──────────────────────────────────────────────────────────────────
 
-func (c *internalClient) dialOnce() error {
-	transport, err := c.dialer.Dial(c.url, c.config.dialHeaders)
+func (c *internalClient) dialOnce(ctx context.Context) error {
+	transport, err := c.dialer.Dial(ctx, c.url, c.config.dialHeaders)
 	if err != nil {
 		return err
 	}
@@ -194,7 +208,7 @@ func (c *internalClient) dialOnce() error {
 	return nil
 }
 
-func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error) {
+func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error) {
 
 	var readErr error
 
@@ -207,7 +221,7 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		}
 		// Capture any write error BEFORE closing the transport.
 		// If writePump already failed, its error is on the channel.
-		// Reading before Close() prevents a spurious close-induced
+		// Reading before CloseNow() prevents a spurious close-induced
 		// write error from overriding the original readErr.
 		var writeErr error
 		select {
@@ -215,7 +229,7 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		default:
 		}
 
-		_ = wsConnection.Close()
+		_ = transport.CloseNow()
 
 		// Determine the root-cause error for onTransportDrop:
 		//   1. User-initiated close → nil (behaviour contract).
@@ -241,17 +255,12 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 		close(dropped)
 	}()
 
-	pongWait := c.config.pongWait
 	if c.config.maxMessageSize > 0 {
-		wsConnection.SetReadLimit(c.config.maxMessageSize)
+		transport.SetReadLimit(c.config.maxMessageSize)
 	}
-	_ = wsConnection.SetReadDeadline(time.Now().Add(pongWait))
-	wsConnection.SetPongHandler(func(string) error {
-		return wsConnection.SetReadDeadline(time.Now().Add(pongWait))
-	})
 
 	for {
-		_, data, err := wsConnection.ReadMessage()
+		_, data, err := transport.Read(ctx)
 		if err != nil {
 			readErr = err
 			return
@@ -269,22 +278,10 @@ func (c *internalClient) readPump(wsConnection wspulse.Transport, dropped chan s
 	}
 }
 
-func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQuit chan struct{}, pumpDone chan struct{}, writeErrCh chan<- error) {
+func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transport, pumpDone chan struct{}, writeErrCh chan<- error) {
 
-	writeWait := c.config.writeWait
-	pingPeriod := c.config.pingPeriod
-
-	sendClose := func() {
-		_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
-		_ = wsConnection.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		)
-	}
-
-	ticker := c.clock.NewTicker(pingPeriod)
 	defer func() {
-		ticker.Stop()
-		_ = wsConnection.Close()
+		_ = transport.CloseNow()
 		close(pumpDone)
 	}()
 
@@ -292,8 +289,8 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 		// Reconnect priority check — yield immediately so the new
 		// writePump can take over on a fresh connection.
 		select {
-		case <-connectionQuit:
-			c.logger.Debug("wspulse: writePump yielding for reconnect (priority)")
+		case <-ctx.Done():
+			c.closeOrForce(transport)
 			return
 		default:
 		}
@@ -302,15 +299,17 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 		select {
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			sendClose()
+			_ = transport.Close(wspulse.StatusNormalClosure, "")
 			return
 		default:
 		}
 
 		select {
 		case data := <-c.send:
-			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := wsConnection.WriteMessage(c.config.codec.FrameType(), data); err != nil {
+			writeCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
+			err := transport.Write(writeCtx, c.config.codec.FrameType(), data)
+			cancel()
+			if err != nil {
 				c.logger.Warn("wspulse: write failed",
 					zap.Error(err),
 				)
@@ -321,29 +320,67 @@ func (c *internalClient) writePump(wsConnection wspulse.Transport, connectionQui
 				return
 			}
 
-		case <-ticker.C:
-			_ = wsConnection.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := wsConnection.WriteMessage(websocket.PingMessage, nil); err != nil {
-				c.logger.Warn("wspulse: ping write failed",
-					zap.Error(err),
-				)
-				select {
-				case writeErrCh <- err:
-				default:
-				}
-				return
-			}
-
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			sendClose()
+			_ = transport.Close(wspulse.StatusNormalClosure, "")
 			return
 
-		case <-connectionQuit:
-			c.logger.Debug("wspulse: writePump yielding for reconnect")
+		case <-ctx.Done():
+			c.closeOrForce(transport)
 			return
 		}
 	}
+}
+
+// closeOrForce sends a close frame if the client is shutting down, or
+// force-closes if yielding for reconnect.
+func (c *internalClient) closeOrForce(transport wspulse.Transport) {
+	select {
+	case <-c.done:
+		c.logger.Debug("wspulse: writePump stopping (client closed)")
+		_ = transport.Close(wspulse.StatusNormalClosure, "")
+	default:
+		c.logger.Debug("wspulse: writePump yielding for reconnect")
+	}
+}
+
+func (c *internalClient) pingPump(ctx context.Context, transport wspulse.Transport) {
+	ticker := c.clock.NewTicker(c.config.pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := c.doPing(ctx, transport); err != nil {
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// doPing sends a ping and waits for the pong within writeTimeout.
+// If the parent context is cancelled (reconnect or close), returns
+// without logging or killing the transport — that is a normal exit.
+// If the pong times out, force-closes the transport so readPump detects
+// the error.
+func (c *internalClient) doPing(ctx context.Context, transport wspulse.Transport) error {
+	pingCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
+	defer cancel()
+	if err := transport.Ping(pingCtx); err != nil {
+		// Parent context cancelled — normal shutdown or reconnect.
+		if ctx.Err() != nil {
+			return err
+		}
+		// Pong timeout — force-close the transport to trigger readPump error.
+		c.logger.Warn("wspulse: pong timeout, closing transport",
+			zap.Error(err),
+		)
+		_ = transport.CloseNow()
+		return err
+	}
+	return nil
 }
 
 func (c *internalClient) reconnectLoop(dropped chan struct{}) {
@@ -371,6 +408,9 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			c.once.Do(func() {
 				close(c.done)
 				close(c.quit)
+				c.mu.Lock()
+				c.pumpCancel()
+				c.mu.Unlock()
 			})
 			return
 		}
@@ -392,7 +432,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
 		)
-		if err := c.dialOnce(); err != nil {
+		if err := c.dialOnce(context.Background()); err != nil {
 			c.logger.Debug("wspulse: dial failed",
 				zap.Int("attempt", attempt),
 				zap.Error(err),
@@ -407,43 +447,51 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		case <-c.quit:
 			c.logger.Debug("wspulse: quit during dial, closing fresh connection")
 			c.mu.Lock()
-			_ = c.connection.Close()
+			_ = c.connection.CloseNow()
 			c.mu.Unlock()
 			return
 		default:
 		}
 
 		dropped = make(chan struct{})
+
+		// Cancel old pumps and wait for writePump to exit.
 		c.mu.Lock()
-		oldQuit := c.connectionQuit
+		c.pumpCancel()
 		oldPumpDone := c.pumpDone
-		newQuit := make(chan struct{})
-		newPumpDone := make(chan struct{})
-		c.connectionQuit = newQuit
-		c.pumpDone = newPumpDone
-		conn := c.connection
 		c.mu.Unlock()
 
-		close(oldQuit)
 		<-oldPumpDone
 
 		// Guard: if Close() was called while we were waiting for the old
 		// pumps to drain, skip launching new ones to avoid wasted work.
 		// Note: a panic from Add-concurrent-with-Wait is impossible here
 		// because reconnectLoop itself holds one WaitGroup count, keeping
-		// the counter ≥ 1 until this function returns.
+		// the counter >= 1 until this function returns.
 		select {
 		case <-c.quit:
 			c.logger.Debug("wspulse: quit before starting fresh pumps, closing fresh connection")
-			_ = conn.Close()
+			c.mu.Lock()
+			_ = c.connection.CloseNow()
+			c.mu.Unlock()
 			return
 		default:
 		}
 
+		newPumpCtx, newPumpCancel := context.WithCancel(context.Background())
+		newPumpDone := make(chan struct{})
 		newWriteErrCh := make(chan error, 1)
-		c.goroutineWaitGroup.Add(2)
-		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(conn, newQuit, newPumpDone, newWriteErrCh) }()
-		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(conn, dropped, newWriteErrCh) }()
+
+		c.mu.Lock()
+		c.pumpCancel = newPumpCancel
+		c.pumpDone = newPumpDone
+		conn := c.connection
+		c.mu.Unlock()
+
+		c.goroutineWaitGroup.Add(3)
+		go func() { defer c.goroutineWaitGroup.Done(); c.readPump(newPumpCtx, conn, dropped, newWriteErrCh) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newPumpCtx, conn, newPumpDone, newWriteErrCh) }()
+		go func() { defer c.goroutineWaitGroup.Done(); c.pingPump(newPumpCtx, conn) }()
 		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
@@ -457,7 +505,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 
 // normalizeScheme converts http/https URL schemes to their WebSocket
 // equivalents (http → ws, https → wss). All other URLs are returned
-// unchanged — gorilla/websocket already validates schemes at dial
+// unchanged — the underlying WebSocket dialer validates schemes at dial
 // time and returns a catchable error, so we avoid duplicating that.
 func normalizeScheme(rawURL string) string {
 	if len(rawURL) < 8 {

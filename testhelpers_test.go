@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -84,7 +85,7 @@ func (fc *fakeClock) TickerCount() int {
 }
 
 // fireTicker fires the i-th registered ticker by resetting it to 1ns.
-// The consumer (writePump) reads from ticker.C and acts on the tick.
+// The consumer (pingPump) reads from ticker.C and acts on the tick.
 // Call stopTicker(i) after verifying the side effect to prevent repeated ticks.
 func (fc *fakeClock) fireTicker(i int) {
 	fc.mu.Lock()
@@ -109,9 +110,9 @@ func echoLoop(mt *mockTransport, done chan struct{}) {
 	for {
 		select {
 		case w := <-mt.writeCh:
-			// Only echo text messages (type 1), skip pings (9) and close (8).
-			if w.messageType == 1 {
-				mt.InjectMessage(1, w.data)
+			// Only echo text messages, skip others.
+			if w.messageType == wspulse.TextMessage {
+				mt.InjectMessage(wspulse.TextMessage, w.data)
 			}
 		case <-done:
 			return
@@ -168,7 +169,7 @@ type headerCapturingDialer struct {
 	called    atomic.Bool
 }
 
-func (d *headerCapturingDialer) Dial(_ string, header http.Header) (wspulse.Transport, error) {
+func (d *headerCapturingDialer) Dial(_ context.Context, _ string, header http.Header) (wspulse.Transport, error) {
 	if d.onDial != nil {
 		d.onDial(header)
 	}
@@ -202,4 +203,4 @@ func (failEncodeCodecComponent) Decode(data []byte) (wspulse.Frame, error) {
 	return wspulse.Frame{}, nil
 }
 
-func (failEncodeCodecComponent) FrameType() int { return 1 }
+func (failEncodeCodecComponent) FrameType() wspulse.MessageType { return wspulse.TextMessage }

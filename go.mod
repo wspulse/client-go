@@ -3,7 +3,7 @@ module github.com/wspulse/client-go
 go 1.26.0
 
 require (
-	github.com/gorilla/websocket v1.5.3
+	github.com/coder/websocket v1.8.14
 	github.com/stretchr/testify v1.11.1
 	github.com/wspulse/core v0.3.1
 	go.uber.org/goleak v1.3.0
