@@ -301,7 +301,7 @@ func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transp
 		select {
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			_ = transport.Close(wspulse.StatusNormalClosure, "")
+			c.gracefulClose(transport)
 			return
 		default:
 		}
@@ -324,7 +324,7 @@ func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transp
 
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			_ = transport.Close(wspulse.StatusNormalClosure, "")
+			c.gracefulClose(transport)
 			return
 
 		case <-ctx.Done():
@@ -335,14 +335,34 @@ func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transp
 }
 
 // closeOrForce sends a close frame if the client is shutting down, or
-// force-closes if yielding for reconnect.
+// returns immediately if yielding for reconnect. In both cases the
+// deferred CloseNow() in writePump guarantees the transport is released.
 func (c *internalClient) closeOrForce(transport wspulse.Transport) {
 	select {
 	case <-c.done:
 		c.logger.Debug("wspulse: writePump stopping (client closed)")
-		_ = transport.Close(wspulse.StatusNormalClosure, "")
+		c.gracefulClose(transport)
 	default:
 		c.logger.Debug("wspulse: writePump yielding for reconnect")
+	}
+}
+
+// gracefulClose attempts to send a WebSocket close frame within
+// writeTimeout. If the transport blocks (e.g. dead peer), CloseNow
+// is called as a fallback to prevent hanging.
+func (c *internalClient) gracefulClose(transport wspulse.Transport) {
+	done := make(chan struct{})
+	go func() {
+		_ = transport.Close(wspulse.StatusNormalClosure, "")
+		close(done)
+	}()
+	t := time.NewTimer(c.config.writeTimeout)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		c.logger.Warn("wspulse: close frame timed out, forcing close")
+		_ = transport.CloseNow()
 	}
 }
 

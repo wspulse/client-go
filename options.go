@@ -154,9 +154,9 @@ func WithPingInterval(d time.Duration) ClientOption {
 	return func(c *clientConfig) { c.pingInterval = d }
 }
 
-// WithWriteTimeout sets the timeout for all write operations, including
-// ping/pong. Pong must arrive within this duration or the connection is
-// considered dead. d must be in (0, 30s]. Default is 10s.
+// WithWriteTimeout sets the timeout for all write operations: data frames,
+// ping/pong, and the close handshake. Pong must arrive within this duration
+// or the connection is considered dead. d must be in (0, 30s]. Default is 10s.
 func WithWriteTimeout(d time.Duration) ClientOption {
 	if d <= 0 {
 		panic("wspulse: writeTimeout must be positive")
