@@ -231,7 +231,17 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 		default:
 		}
 
-		_ = transport.CloseNow()
+		// On user-initiated close, skip CloseNow() here — writePump owns
+		// the graceful close handshake (close frame + deferred CloseNow).
+		// Calling CloseNow() first would kill the transport before writePump
+		// can send the close frame, causing the server to see an abnormal drop.
+		// On reconnect (c.done not closed), CloseNow() is correct — we want
+		// to force-kill the old transport immediately.
+		select {
+		case <-c.done:
+		default:
+			_ = transport.CloseNow()
+		}
 
 		// Determine the root-cause error for onTransportDrop:
 		//   1. User-initiated close → nil (behaviour contract).
