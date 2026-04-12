@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
-
 	wspulse "github.com/wspulse/core"
+	"go.uber.org/zap"
 )
 
 // ErrRetriesExhausted is returned to OnDisconnect when all reconnect
@@ -138,7 +137,7 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 				c.mu.Unlock()
 			})
 			if fn := c.config.onDisconnect; fn != nil {
-				fn(disconnectErr)
+				c.safeInvoke("onDisconnect", func() { fn(disconnectErr) })
 			}
 		}()
 	}
@@ -257,11 +256,12 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 		}
 
 		c.logger.Debug("wspulse: connection lost",
+			zap.String("url", c.url),
 			zap.Error(readErr),
 		)
 
 		if fn := c.config.onTransportDrop; fn != nil {
-			fn(readErr)
+			c.safeInvoke("onTransportDrop", func() { fn(readErr) })
 		}
 
 		close(dropped)
@@ -323,6 +323,7 @@ func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transp
 			cancel()
 			if err != nil {
 				c.logger.Warn("wspulse: write failed",
+					zap.String("url", c.url),
 					zap.Error(err),
 				)
 				select {
@@ -360,12 +361,17 @@ func (c *internalClient) closeOrForce(transport wspulse.Transport) {
 // gracefulClose attempts to send a WebSocket close frame within
 // writeTimeout. If the transport blocks (e.g. dead peer), CloseNow
 // is called as a fallback to prevent hanging.
+//
+// transport.Close() has no context parameter, so we run it in a tracked
+// goroutine with a timer fallback. The goroutine is added to
+// goroutineWaitGroup so Close() does not return until it exits — even
+// when the timer fires and CloseNow() is called first.
 func (c *internalClient) gracefulClose(transport wspulse.Transport) {
 	done := make(chan struct{})
-	go func() {
+	c.goroutineWaitGroup.Go(func() {
 		_ = transport.Close(wspulse.StatusNormalClosure, "")
 		close(done)
-	}()
+	})
 	t := time.NewTimer(c.config.writeTimeout)
 	defer t.Stop()
 	select {
@@ -427,7 +433,7 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	var disconnectErr error
 	defer func() {
 		if fn := c.config.onDisconnect; fn != nil {
-			fn(disconnectErr)
+			c.safeInvoke("onDisconnect", func() { fn(disconnectErr) })
 		}
 	}()
 
@@ -553,9 +559,23 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		)
 		attempt = 0
 		if fn := c.config.onTransportRestore; fn != nil {
-			fn()
+			c.safeInvoke("onTransportRestore", func() { fn() })
 		}
 	}
+}
+
+// safeInvoke calls fn, recovering from any panic so a misbehaving user
+// callback cannot crash an internal goroutine.
+func (c *internalClient) safeInvoke(callback string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Error("wspulse: callback panic recovered",
+				zap.String("callback", callback),
+				zap.Any("panic", r),
+			)
+		}
+	}()
+	fn()
 }
 
 // normalizeScheme converts http/https URL schemes to their WebSocket
