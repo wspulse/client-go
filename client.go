@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	wspulse "github.com/wspulse/core"
 	"go.uber.org/zap"
+
+	wspulse "github.com/wspulse/core"
 )
 
 // ErrRetriesExhausted is returned to OnDisconnect when all reconnect
