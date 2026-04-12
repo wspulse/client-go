@@ -51,6 +51,8 @@ type Client interface {
 //     Close() (to shut down permanently).
 //   - pumpDone   : closed by writePump on exit; used by reconnectLoop
 //     to wait for the old pumps before starting new ones.
+//   - pingPump   : exits via context cancellation; its errors propagate
+//     through CloseNow() → readPump (which sees a read error).
 type internalClient struct {
 	url                string
 	config             *clientConfig
@@ -432,7 +434,18 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
 		)
-		if err := c.dialOnce(context.Background()); err != nil {
+		dialCtx, dialCancel := context.WithCancel(context.Background())
+		// Cancel the in-flight dial immediately when Close() is called,
+		// so we don't block on a slow/unresponsive server handshake.
+		go func() {
+			select {
+			case <-c.quit:
+				dialCancel()
+			case <-dialCtx.Done():
+			}
+		}()
+		if err := c.dialOnce(dialCtx); err != nil {
+			dialCancel()
 			c.logger.Debug("wspulse: dial failed",
 				zap.Int("attempt", attempt),
 				zap.Error(err),
@@ -442,6 +455,8 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 			close(dropped)
 			continue
 		}
+
+		dialCancel() // stop the quit-monitoring goroutine
 
 		select {
 		case <-c.quit:

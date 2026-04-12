@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Replace `gorilla/websocket` (archived) with `coder/websocket` as the underlying WebSocket transport
+- **BREAKING**: Remove `WithHeartbeat(pingPeriod, pongWait, writeWait)` option; replaced by two independent options:
+  - `WithPingInterval(d time.Duration)` — heartbeat interval (default 20s, max 1m)
+  - `WithWriteTimeout(d time.Duration)` — write/pong deadline (default 10s, max 30s)
+- Extract `pingPump` as a dedicated goroutine (was inlined in `writePump`), giving a 3-pump architecture: readPump + writePump + pingPump
+- Internal `dialer` interface now accepts `context.Context`; reconnect dial is cancellable via `Close()`
+
 ---
 
 ## [0.5.1] - 2026-04-08

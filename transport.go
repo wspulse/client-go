@@ -8,6 +8,12 @@ import (
 	wspulse "github.com/wspulse/core"
 )
 
+// Compile-time assertions: numeric values must match between coder/websocket
+// and wspulse/core (both follow RFC 6455). A mismatch here means frames
+// would be silently mis-typed at runtime.
+var _ = [1]struct{}{}[websocket.MessageText-websocket.MessageType(wspulse.TextMessage)]
+var _ = [1]struct{}{}[websocket.MessageBinary-websocket.MessageType(wspulse.BinaryMessage)]
+
 // coderTransport wraps *websocket.Conn to satisfy core.Transport.
 // All type conversions are simple casts — numeric values are identical
 // between coder/websocket and wspulse/core (both follow RFC 6455).
