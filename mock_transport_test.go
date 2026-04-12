@@ -1,11 +1,11 @@
 package client_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	wspulse "github.com/wspulse/core"
 
@@ -20,27 +20,34 @@ type mockTransport struct {
 	writeCh   chan writeCall
 	closeCh   chan struct{}
 	closeOnce sync.Once
-	blockCh   chan struct{} // when non-nil, WriteMessage blocks until blockCh or closeCh is closed
+	blockCh   chan struct{} // when non-nil, Write blocks until blockCh or closeCh is closed
 
 	mu           sync.Mutex
 	readLimit    int64
-	readLimitSet chan struct{} // signaled once when SetReadLimit is first called with a non-zero value
-	writeEntered chan struct{} // when non-nil, signaled each time WriteMessage is entered (before blocking)
-	pongHandler  func(string) error
-	writeErr     error  // when non-nil, WriteMessage returns this error immediately
-	closeHook    func() // when non-nil, runs inside Close() after closeCh is closed but before Close() returns
+	readLimitSet chan struct{}                   // signaled once when SetReadLimit is first called with a non-zero value
+	writeEntered chan struct{}                   // when non-nil, signaled each time Write is entered (before blocking)
+	pingCh       chan struct{}                   // when non-nil, signaled each time Ping is called
+	pingFunc     func(ctx context.Context) error // when non-nil, Ping delegates to this function
+	closeCalled  chan closeCall                  // when non-nil, signaled on Close(code, reason)
+	writeErr     error                           // when non-nil, Write returns this error immediately
+	closeHook    func()                          // when non-nil, runs inside doClose after closeCh is closed
 	closed       bool
 }
 
 type readResult struct {
-	messageType int
+	messageType wspulse.MessageType
 	data        []byte
 	err         error
 }
 
 type writeCall struct {
-	messageType int
+	messageType wspulse.MessageType
 	data        []byte
+}
+
+type closeCall struct {
+	code   wspulse.StatusCode
+	reason string
 }
 
 func newMockTransport() *mockTransport {
@@ -52,16 +59,18 @@ func newMockTransport() *mockTransport {
 	}
 }
 
-func (m *mockTransport) ReadMessage() (int, []byte, error) {
+func (m *mockTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	select {
 	case r := <-m.readCh:
 		return r.messageType, r.data, r.err
 	case <-m.closeCh:
 		return 0, nil, &net.OpError{Op: "read", Err: net.ErrClosed}
+	case <-ctx.Done():
+		return 0, nil, ctx.Err()
 	}
 }
 
-func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
+func (m *mockTransport) Write(ctx context.Context, typ wspulse.MessageType, data []byte) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -92,20 +101,40 @@ func (m *mockTransport) WriteMessage(messageType int, data []byte) error {
 			// Unblocked — fall through to normal write path.
 		case <-m.closeCh:
 			return &net.OpError{Op: "write", Err: net.ErrClosed}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 
 	copied := make([]byte, len(data))
 	copy(copied, data)
 	select {
-	case m.writeCh <- writeCall{messageType: messageType, data: copied}:
+	case m.writeCh <- writeCall{messageType: typ, data: copied}:
 		return nil
 	case <-m.closeCh:
 		return &net.OpError{Op: "write", Err: net.ErrClosed}
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
 		// Channel full — drop silently. Backpressure tests use blockCh instead.
 		return nil
 	}
+}
+
+func (m *mockTransport) Ping(ctx context.Context) error {
+	if m.pingCh != nil {
+		select {
+		case m.pingCh <- struct{}{}:
+		default:
+		}
+	}
+	m.mu.Lock()
+	fn := m.pingFunc
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx)
+	}
+	return nil
 }
 
 func (m *mockTransport) SetReadLimit(limit int64) {
@@ -120,16 +149,21 @@ func (m *mockTransport) SetReadLimit(limit int64) {
 	}
 }
 
-func (m *mockTransport) SetReadDeadline(_ time.Time) error  { return nil }
-func (m *mockTransport) SetWriteDeadline(_ time.Time) error { return nil }
-
-func (m *mockTransport) SetPongHandler(h func(string) error) {
-	m.mu.Lock()
-	m.pongHandler = h
-	m.mu.Unlock()
+func (m *mockTransport) Close(code wspulse.StatusCode, reason string) error {
+	if m.closeCalled != nil {
+		select {
+		case m.closeCalled <- closeCall{code: code, reason: reason}:
+		default:
+		}
+	}
+	return m.doClose()
 }
 
-func (m *mockTransport) Close() error {
+func (m *mockTransport) CloseNow() error {
+	return m.doClose()
+}
+
+func (m *mockTransport) doClose() error {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
@@ -143,7 +177,7 @@ func (m *mockTransport) Close() error {
 	return nil
 }
 
-// BlockWrites causes WriteMessage to block until unblock is called or the
+// BlockWrites causes Write to block until unblock is called or the
 // transport is closed. Used by backpressure tests to deterministically stall
 // writePump. The returned function unblocks all pending and future writes.
 func (m *mockTransport) BlockWrites() (unblock func()) {
@@ -162,7 +196,7 @@ func (m *mockTransport) BlockWrites() (unblock func()) {
 	}
 }
 
-// SetWriteError causes all subsequent WriteMessage calls to return err.
+// SetWriteError causes all subsequent Write calls to return err.
 func (m *mockTransport) SetWriteError(err error) {
 	m.mu.Lock()
 	m.writeErr = err
@@ -170,8 +204,8 @@ func (m *mockTransport) SetWriteError(err error) {
 }
 
 // InjectMessage simulates a message from the server.
-func (m *mockTransport) InjectMessage(messageType int, data []byte) {
-	m.readCh <- readResult{messageType: messageType, data: data}
+func (m *mockTransport) InjectMessage(typ wspulse.MessageType, data []byte) {
+	m.readCh <- readResult{messageType: typ, data: data}
 }
 
 // InjectError simulates a read error (e.g. connection drop).
@@ -214,7 +248,7 @@ func newMockDialer(results ...mockDialResult) *mockDialer {
 	}
 }
 
-func (d *mockDialer) Dial(url string, header http.Header) (wspulse.Transport, error) {
+func (d *mockDialer) Dial(_ context.Context, _ string, _ http.Header) (wspulse.Transport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.callCount >= len(d.results) {

@@ -12,9 +12,8 @@ import (
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
 const (
-	maxPingPeriod    = 1 * time.Minute  // WithHeartbeat: pingPeriod upper bound
-	maxPongWait      = 2 * time.Minute  // WithHeartbeat: pongWait upper bound
-	maxWriteWait     = 30 * time.Second // WithHeartbeat: writeWait upper bound
+	maxPingInterval  = 1 * time.Minute  // WithPingInterval upper bound
+	maxWriteTimeout  = 30 * time.Second // WithWriteTimeout upper bound
 	maxMsgSizeBytes  = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
 	maxBaseDelay     = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
 	maxDelayLimit    = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
@@ -37,9 +36,8 @@ type clientConfig struct {
 	maxRetries         int // 0 means retry indefinitely
 	baseDelay          time.Duration
 	maxDelay           time.Duration
-	pongWait           time.Duration
-	pingPeriod         time.Duration
-	writeWait          time.Duration
+	pingInterval       time.Duration
+	writeTimeout       time.Duration
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
 	sendBufferSize     int   // outbound channel capacity (number of frames)
 	clock              clock
@@ -54,13 +52,12 @@ func defaultClientConfig() *clientConfig {
 		maxRetries:     10,
 		baseDelay:      1 * time.Second,
 		maxDelay:       30 * time.Second,
-		pongWait:       60 * time.Second,
-		pingPeriod:     20 * time.Second,
-		writeWait:      10 * time.Second,
+		pingInterval:   20 * time.Second,
+		writeTimeout:   10 * time.Second,
 		maxMessageSize: 1 << 20, // 1 MiB
 		sendBufferSize: 256,
 		clock:          realClock{},
-		dialer:         gorillaDialer{},
+		dialer:         coderDialer{},
 	}
 }
 
@@ -145,35 +142,29 @@ func WithLogger(logger *zap.Logger) ClientOption {
 	return func(c *clientConfig) { c.logger = logger }
 }
 
-// WithHeartbeat configures client-side Ping/Pong heartbeat intervals.
-// pingPeriod must be in (0, 1m], pongWait in (pingPeriod, 2m], writeWait in (0, 30s].
-func WithHeartbeat(pingPeriod, pongWait, writeWait time.Duration) ClientOption {
-	if pingPeriod <= 0 {
-		panic("wspulse: heartbeat.pingPeriod must be positive")
+// WithPingInterval sets the interval between heartbeat pings.
+// d must be in (0, 1m]. Default is 20s.
+func WithPingInterval(d time.Duration) ClientOption {
+	if d <= 0 {
+		panic("wspulse: pingInterval must be positive")
 	}
-	if pongWait <= 0 {
-		panic("wspulse: heartbeat.pongWait must be positive")
+	if d > maxPingInterval {
+		panic("wspulse: pingInterval exceeds maximum (1m)")
 	}
-	if writeWait <= 0 {
-		panic("wspulse: writeWait must be positive")
+	return func(c *clientConfig) { c.pingInterval = d }
+}
+
+// WithWriteTimeout sets the timeout for all write operations: data frames,
+// ping/pong, and the close handshake. Pong must arrive within this duration
+// or the connection is considered dead. d must be in (0, 30s]. Default is 10s.
+func WithWriteTimeout(d time.Duration) ClientOption {
+	if d <= 0 {
+		panic("wspulse: writeTimeout must be positive")
 	}
-	if pingPeriod >= pongWait {
-		panic("wspulse: heartbeat.pingPeriod must be strictly less than heartbeat.pongWait")
+	if d > maxWriteTimeout {
+		panic("wspulse: writeTimeout exceeds maximum (30s)")
 	}
-	if pingPeriod > maxPingPeriod {
-		panic("wspulse: heartbeat.pingPeriod exceeds maximum (1m)")
-	}
-	if pongWait > maxPongWait {
-		panic("wspulse: heartbeat.pongWait exceeds maximum (2m)")
-	}
-	if writeWait > maxWriteWait {
-		panic("wspulse: writeWait exceeds maximum (30s)")
-	}
-	return func(c *clientConfig) {
-		c.pingPeriod = pingPeriod
-		c.pongWait = pongWait
-		c.writeWait = writeWait
-	}
+	return func(c *clientConfig) { c.writeTimeout = d }
 }
 
 // WithSendBufferSize sets the outbound channel capacity (number of frames).

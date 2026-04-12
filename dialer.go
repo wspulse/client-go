@@ -1,25 +1,28 @@
 package client
 
 import (
+	"context"
 	"net/http"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	wspulse "github.com/wspulse/core"
 )
 
 // dialer abstracts the WebSocket dial operation for testability.
 type dialer interface {
-	Dial(url string, requestHeader http.Header) (wspulse.Transport, error)
+	Dial(ctx context.Context, url string, requestHeader http.Header) (wspulse.Transport, error)
 }
 
-// gorillaDialer uses gorilla/websocket.DefaultDialer.
-type gorillaDialer struct{}
+// coderDialer uses github.com/coder/websocket.
+type coderDialer struct{}
 
-func (gorillaDialer) Dial(url string, requestHeader http.Header) (wspulse.Transport, error) {
-	conn, resp, err := websocket.DefaultDialer.Dial(url, requestHeader)
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+func (coderDialer) Dial(ctx context.Context, url string, requestHeader http.Header) (wspulse.Transport, error) {
+	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		HTTPHeader: requestHeader,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return conn, err
+	return &coderTransport{conn: conn}, nil
 }
