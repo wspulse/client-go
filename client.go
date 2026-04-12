@@ -395,10 +395,18 @@ func (c *internalClient) doPing(ctx context.Context, transport wspulse.Transport
 		if ctx.Err() != nil {
 			return err
 		}
-		// Pong timeout — force-close the transport to trigger readPump error.
-		c.logger.Warn("wspulse: pong timeout, closing transport",
-			zap.Error(err),
-		)
+		// Abnormal ping failure — force-close to trigger readPump error.
+		// Detailed error classification (timeout vs. TCP drop vs. policy)
+		// is handled in issue #44.
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.logger.Warn("wspulse: pong timeout, closing transport",
+				zap.Error(err),
+			)
+		} else {
+			c.logger.Warn("wspulse: ping failed, closing transport",
+				zap.Error(err),
+			)
+		}
 		_ = transport.CloseNow()
 		return err
 	}
@@ -457,7 +465,9 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		dialCtx, dialCancel := context.WithCancel(context.Background())
 		// Cancel the in-flight dial immediately when Close() is called,
 		// so we don't block on a slow/unresponsive server handshake.
+		c.goroutineWaitGroup.Add(1)
 		go func() {
+			defer c.goroutineWaitGroup.Done()
 			select {
 			case <-c.quit:
 				dialCancel()
