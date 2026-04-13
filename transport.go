@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/coder/websocket"
 
@@ -23,6 +24,11 @@ type coderTransport struct {
 
 func (t *coderTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	typ, data, err := t.conn.Read(ctx)
+	if err != nil && websocket.CloseStatus(err) != -1 {
+		// Server sent a WebSocket close frame. Wrap with ErrServerClosed so
+		// callers can use errors.Is without importing coder/websocket.
+		err = fmt.Errorf("wspulse: server closed connection: %w", ErrServerClosed)
+	}
 	return wspulse.MessageType(typ), data, err
 }
 
