@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+---
+
+## [0.6.0] - 2026-04-13
+
 ### Changed
 
 - **BREAKING**: Replace `gorilla/websocket` (archived) with `coder/websocket` as the underlying WebSocket transport
