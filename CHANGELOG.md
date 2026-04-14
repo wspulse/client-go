@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ErrNetworkUnhealthy`: returned to `OnTransportDrop` when the client sends a ping and the server does not reply within `writeTimeout`. Previously the callback received a generic `net.ErrClosed` with the root cause lost.
+- `ErrServerClosed`: returned to `OnTransportDrop` when the server initiates a WebSocket close handshake (any close frame status code). Previously the callback received a library-specific error type from `coder/websocket`.
+
 ## [0.6.0] - 2026-04-13
 
 ### Changed

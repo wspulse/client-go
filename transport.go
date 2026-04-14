@@ -23,6 +23,11 @@ type coderTransport struct {
 
 func (t *coderTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	typ, data, err := t.conn.Read(ctx)
+	if err != nil && websocket.CloseStatus(err) != -1 {
+		// Server sent a WebSocket close frame. Return ErrServerClosed directly
+		// so callers can use errors.Is without importing coder/websocket.
+		err = ErrServerClosed
+	}
 	return wspulse.MessageType(typ), data, err
 }
 
