@@ -190,12 +190,12 @@ func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 
 func TestPongTimeout_DisconnectsClient(t *testing.T) {
 	t.Parallel()
-	// When the server never responds to a ping, the writeTimeout context
-	// expires and pingPump force-closes the transport.
+	// When the server never responds to a ping, pingPump force-closes the
+	// transport. pingFunc returns context.DeadlineExceeded immediately so
+	// the test does not depend on any real wall-clock timeout.
 	mt := newMockTransport()
 	mt.pingFunc = func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+		return context.DeadlineExceeded
 	}
 	fc := newFakeClock()
 	md := newMockDialer(mockDialResult{transport: mt})
@@ -205,7 +205,6 @@ func TestPongTimeout_DisconnectsClient(t *testing.T) {
 		client.WithDialer(md),
 		client.WithClock(fc),
 		client.WithPingInterval(50*time.Millisecond),
-		client.WithWriteTimeout(50*time.Millisecond),
 		client.WithOnTransportDrop(func(err error) {
 			transportDropped <- err
 		}),
@@ -216,7 +215,8 @@ func TestPongTimeout_DisconnectsClient(t *testing.T) {
 	// Wait for pingPump to create the ticker.
 	requireReceive(t, fc.tickerAdded)
 
-	// Fire the ticker — ping blocks, writeTimeout expires, CloseNow fires.
+	// Fire the ticker — pingFunc returns DeadlineExceeded immediately,
+	// doPing calls CloseNow(), readPump signals onTransportDrop.
 	fc.fireTicker(0)
 
 	got := requireReceive(t, transportDropped)
