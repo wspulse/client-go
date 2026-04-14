@@ -2,7 +2,6 @@ package client_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -48,16 +47,16 @@ func TestOnTransportDrop_PongTimeout_IsErrNetworkUnhealthy(t *testing.T) {
 
 func TestOnTransportDrop_ServerClosedFrame_IsErrServerClosed(t *testing.T) {
 	t.Parallel()
-	// The transport adapter wraps coder/websocket close frame errors into
-	// ErrServerClosed before they reach readPump. Inject the already-wrapped
-	// error via mock to verify the readPump → onTransportDrop plumbing.
+	// The transport adapter returns ErrServerClosed directly when the server
+	// sends a close frame. Inject it via mock to verify the
+	// readPump → onTransportDrop propagation path.
 	dropErr := make(chan error, 1)
 	c, mt, _ := dialWithMock(t,
 		client.WithOnTransportDrop(func(e error) { dropErr <- e }),
 	)
 	t.Cleanup(func() { _ = c.Close() })
 
-	mt.InjectError(fmt.Errorf("wspulse: server closed connection: %w", client.ErrServerClosed))
+	mt.InjectError(client.ErrServerClosed)
 
 	got := requireReceive(t, dropErr)
 	assert.ErrorIs(t, got, client.ErrServerClosed,
