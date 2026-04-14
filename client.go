@@ -424,9 +424,10 @@ func (c *internalClient) pingPump(ctx context.Context, transport wspulse.Transpo
 // doPing sends a ping and waits for the pong within writeTimeout.
 // If the parent context is cancelled (reconnect or close), returns
 // without logging or killing the transport — that is a normal exit.
-// If the pong times out or fails abnormally, sends ErrNetworkUnhealthy to
-// pingErrCh so readPump can report the root cause in onTransportDrop, then
-// force-closes the transport.
+// If the pong times out, sends ErrNetworkUnhealthy to pingErrCh so readPump
+// can report the root cause in onTransportDrop, then force-closes the transport.
+// For other ping failures the transport is closed but pingErrCh is not written,
+// letting readPump's own error (e.g. ErrServerClosed) take priority.
 func (c *internalClient) doPing(ctx context.Context, transport wspulse.Transport, pingErrCh chan<- error) error {
 	pingCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
 	defer cancel()
@@ -435,15 +436,23 @@ func (c *internalClient) doPing(ctx context.Context, transport wspulse.Transport
 		if ctx.Err() != nil {
 			return err
 		}
-		// Abnormal ping failure — send ErrNetworkUnhealthy to readPump
-		// before CloseNow() so the root cause is not lost when readPump
-		// sees a secondary net.ErrClosed from the closed transport.
-		c.logger.Warn("wspulse: pong timeout, closing transport",
-			zap.Error(err),
-		)
-		select {
-		case pingErrCh <- ErrNetworkUnhealthy:
-		default:
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Pong timeout — send ErrNetworkUnhealthy before CloseNow() so
+			// the root cause is not lost when readPump sees a secondary
+			// net.ErrClosed from the closed transport.
+			c.logger.Warn("wspulse: pong timeout, closing transport",
+				zap.Error(err),
+			)
+			select {
+			case pingErrCh <- ErrNetworkUnhealthy:
+			default:
+			}
+		} else {
+			// Other ping failure (e.g. transport already closing) — do not
+			// override readPump's error, which carries the real root cause.
+			c.logger.Warn("wspulse: ping failed, closing transport",
+				zap.Error(err),
+			)
 		}
 		_ = transport.CloseNow()
 		return err

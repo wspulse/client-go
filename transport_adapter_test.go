@@ -38,6 +38,7 @@ func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
 			url := "ws" + strings.TrimPrefix(srv.URL, "http")
 			conn, _, err := websocket.Dial(context.Background(), url, nil)
 			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.CloseNow() })
 
 			transport := &coderTransport{conn: conn}
 			_, _, readErr := transport.Read(context.Background())
