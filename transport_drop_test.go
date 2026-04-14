@@ -16,12 +16,12 @@ import (
 
 func TestOnTransportDrop_PongTimeout_IsErrNetworkUnhealthy(t *testing.T) {
 	t.Parallel()
-	// Ping blocks until writeTimeout expires, simulating a server that never
-	// replies. OnTransportDrop must receive ErrNetworkUnhealthy.
+	// pingFunc returns DeadlineExceeded immediately so the test does not
+	// depend on any real wall-clock timeout. OnTransportDrop must receive
+	// ErrNetworkUnhealthy.
 	mt := newMockTransport()
-	mt.pingFunc = func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+	mt.pingFunc = func(context.Context) error {
+		return context.DeadlineExceeded
 	}
 	fc := newFakeClock()
 
@@ -30,7 +30,6 @@ func TestOnTransportDrop_PongTimeout_IsErrNetworkUnhealthy(t *testing.T) {
 		client.WithDialer(newMockDialer(mockDialResult{transport: mt})),
 		client.WithClock(fc),
 		client.WithPingInterval(50*time.Millisecond),
-		client.WithWriteTimeout(50*time.Millisecond),
 		client.WithOnTransportDrop(func(e error) { dropErr <- e }),
 	)
 	require.NoError(t, err)

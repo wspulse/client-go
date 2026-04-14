@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
@@ -35,13 +36,16 @@ func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			t.Cleanup(cancel)
+
 			url := "ws" + strings.TrimPrefix(srv.URL, "http")
-			conn, _, err := websocket.Dial(context.Background(), url, nil)
+			conn, _, err := websocket.Dial(ctx, url, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = conn.CloseNow() })
 
 			transport := &coderTransport{conn: conn}
-			_, _, readErr := transport.Read(context.Background())
+			_, _, readErr := transport.Read(ctx)
 
 			require.Error(t, readErr)
 			assert.ErrorIs(t, readErr, ErrServerClosed,
