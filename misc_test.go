@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -71,10 +72,10 @@ func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Inject an invalid JSON frame (decode failure — should be dropped).
-	mt.InjectMessage(1, []byte("not valid json{{{"))
+	mt.InjectMessage(wspulse.TextMessage, []byte("not valid json{{{"))
 	// Inject a valid frame that should be delivered.
 	validFrame := `{"event":"valid-frame","payload":"ok"}`
-	mt.InjectMessage(1, []byte(validFrame))
+	mt.InjectMessage(wspulse.TextMessage, []byte(validFrame))
 
 	f := requireReceive(t, received)
 	assert.Equal(t, "valid-frame", f.Event)
@@ -95,7 +96,7 @@ func TestReadPump_PanicRecovery(t *testing.T) {
 
 	// Inject a valid frame to trigger the panic in OnMessage.
 	trigger := `{"event":"trigger","payload":null}`
-	mt.InjectMessage(1, []byte(trigger))
+	mt.InjectMessage(wspulse.TextMessage, []byte(trigger))
 
 	_ = requireReceive(t, disconnected)
 }
@@ -118,12 +119,40 @@ func TestSend_EncodeError_ReturnsError(t *testing.T) {
 	require.Error(t, err, "expected encode error")
 }
 
+func TestPingInterval_SendsPings(t *testing.T) {
+	t.Parallel()
+	// Verify that with a fake clock, firing the heartbeat ticker causes a ping.
+	mt := newMockTransport()
+	mt.pingCh = make(chan struct{}, 16)
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithPingInterval(50*time.Millisecond),
+		client.WithWriteTimeout(5*time.Second),
+	)
+	require.NoError(t, err, "Dial failed")
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Wait for pingPump to create the heartbeat ticker.
+	requireReceive(t, fc.tickerAdded)
+
+	// Fire the ticker to trigger a ping.
+	fc.fireTicker(0)
+
+	// Verify ping was called.
+	requireReceive(t, mt.pingCh)
+	fc.stopTicker(0)
+}
+
 func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 	t.Parallel()
 	// Verifies the observable heartbeat behaviour: the client sends pings
 	// via the heartbeat ticker, and when the transport dies the client disconnects.
-	// We use a fake clock so the ticker fires only when the test drives it.
 	mt := newMockTransport()
+	mt.pingCh = make(chan struct{}, 16)
 	fc := newFakeClock()
 	md := newMockDialer(mockDialResult{transport: mt})
 
@@ -131,7 +160,8 @@ func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
 		client.WithClock(fc),
-		client.WithHeartbeat(50*time.Millisecond, 150*time.Millisecond, 10*time.Second),
+		client.WithPingInterval(50*time.Millisecond),
+		client.WithWriteTimeout(10*time.Second),
 		client.WithOnDisconnect(func(err error) {
 			disconnected <- err
 		}),
@@ -139,22 +169,14 @@ func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Wait for writePump to create the heartbeat ticker.
+	// Wait for pingPump to create the heartbeat ticker.
 	requireReceive(t, fc.tickerAdded)
 
-	// Fire the ticker to trigger a ping write.
+	// Fire the ticker to trigger a ping.
 	fc.fireTicker(0)
 
-	// Verify a ping was written.
-	pingSeen := false
-	for {
-		w := requireReceive(t, mt.writeCh)
-		if w.messageType == 9 { // PingMessage
-			pingSeen = true
-			break
-		}
-	}
-	require.True(t, pingSeen, "no ping message observed")
+	// Verify a ping was sent.
+	requireReceive(t, mt.pingCh)
 	fc.stopTicker(0)
 
 	// Kill the transport to simulate a connection loss.
@@ -164,6 +186,42 @@ func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
 	assert.Error(t, got, "want non-nil error on disconnect")
 
 	requireDone(t, c)
+}
+
+func TestPongTimeout_DisconnectsClient(t *testing.T) {
+	t.Parallel()
+	// When the server never responds to a ping, pingPump force-closes the
+	// transport. pingFunc returns context.DeadlineExceeded immediately so
+	// the test does not depend on any real wall-clock timeout.
+	mt := newMockTransport()
+	mt.pingFunc = func(ctx context.Context) error {
+		return context.DeadlineExceeded
+	}
+	fc := newFakeClock()
+	md := newMockDialer(mockDialResult{transport: mt})
+
+	transportDropped := make(chan error, 1)
+	c, err := client.Dial("ws://mock",
+		client.WithDialer(md),
+		client.WithClock(fc),
+		client.WithPingInterval(50*time.Millisecond),
+		client.WithOnTransportDrop(func(err error) {
+			transportDropped <- err
+		}),
+	)
+	require.NoError(t, err, "Dial failed")
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Wait for pingPump to create the ticker.
+	requireReceive(t, fc.tickerAdded)
+
+	// Fire the ticker — pingFunc returns DeadlineExceeded immediately,
+	// doPing calls CloseNow(), readPump signals onTransportDrop.
+	fc.fireTicker(0)
+
+	got := requireReceive(t, transportDropped)
+	assert.Error(t, got, "want non-nil error on pong timeout")
+	fc.stopTicker(0)
 }
 
 func TestWithDialHeaders(t *testing.T) {
@@ -256,7 +314,7 @@ func TestWithMaxMessageSize_OversizedMessage(t *testing.T) {
 	mt.mu.Unlock()
 	assert.Equal(t, int64(10), readLimit, "SetReadLimit")
 
-	// Simulate what the real gorilla transport would do: return an error
+	// Simulate what the real transport would do: return an error
 	// when receiving an oversized message.
 	mt.InjectError(errors.New("websocket: read limit exceeded"))
 
@@ -272,46 +330,11 @@ func TestWithLogger_ValidLogger_Applied(t *testing.T) {
 	_ = c.Close()
 }
 
-func TestWithHeartbeat_ValidParams_Applied(t *testing.T) {
+func TestWithPingInterval_ValidParams_Applied(t *testing.T) {
 	t.Parallel()
-	// WithHeartbeat is applied at option construction time. Verify the client
-	// can be created and closed with custom heartbeat params.
 	c, _, _ := dialWithMock(t,
-		client.WithHeartbeat(5*time.Second, 15*time.Second, 3*time.Second),
+		client.WithPingInterval(5*time.Second),
+		client.WithWriteTimeout(3*time.Second),
 	)
 	_ = c.Close()
-}
-
-func TestWithHeartbeat_SendsPings(t *testing.T) {
-	t.Parallel()
-	// Verify that with a fake clock, firing the heartbeat ticker causes a ping.
-	mt := newMockTransport()
-	fc := newFakeClock()
-	md := newMockDialer(mockDialResult{transport: mt})
-
-	c, err := client.Dial("ws://mock",
-		client.WithDialer(md),
-		client.WithClock(fc),
-		client.WithHeartbeat(50*time.Millisecond, 200*time.Millisecond, 5*time.Second),
-	)
-	require.NoError(t, err, "Dial failed")
-	t.Cleanup(func() { _ = c.Close() })
-
-	// Wait for writePump to create the heartbeat ticker.
-	requireReceive(t, fc.tickerAdded)
-
-	// Fire the ticker to trigger a ping write.
-	fc.fireTicker(0)
-
-	// Read writes until we see a ping.
-	pingSeen := false
-	for {
-		w := requireReceive(t, mt.writeCh)
-		if w.messageType == 9 { // PingMessage
-			pingSeen = true
-			break
-		}
-	}
-	require.True(t, pingSeen, "no ping message received from heartbeat")
-	fc.stopTicker(0)
 }

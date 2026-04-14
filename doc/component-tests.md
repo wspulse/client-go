@@ -78,8 +78,9 @@ deterministic and run with `make check`.
 | `TestWithDialHeaders`                              | Custom dial headers are forwarded to the dialer               |
 | `TestWithMaxMessageSize`                           | `SetReadLimit` is called with configured size                 |
 | `TestWithMaxMessageSize_OversizedMessage`          | Oversized message triggers read error                         |
-| `TestWithHeartbeat_ValidParams_Applied`            | `WithHeartbeat` option is accepted                            |
-| `TestWithHeartbeat_SendsPings`                     | Ping messages are sent at configured interval                 |
+| `TestPingInterval_SendsPings`                      | Ping messages are sent at configured interval                 |
+| `TestPongTimeout_DisconnectsClient`                | Pong timeout force-closes transport                           |
+| `TestWithPingInterval_ValidParams_Applied`         | `WithPingInterval` option is accepted                         |
 | `TestWithLogger_ValidLogger_Applied`               | `WithLogger` option is accepted                               |
 
-**Total: 41 component tests** (9 contract scenarios + additional per-feature tests).
+**Total: 42 component tests** (9 contract scenarios + additional per-feature tests).
