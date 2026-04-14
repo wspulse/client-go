@@ -237,7 +237,7 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 		// Capture any write or ping error BEFORE closing the transport.
 		// Priority: pingErrCh > writeErrCh > readErr.
 		// Reading before CloseNow() prevents a spurious close-induced
-		// read error from overriding the original root cause.
+		// write error from writePump from overriding the original root cause.
 		var writeErr error
 		select {
 		case writeErr = <-writeErrCh:

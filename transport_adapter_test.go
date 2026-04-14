@@ -31,7 +31,10 @@ func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := websocket.Accept(w, r, nil)
-				require.NoError(t, err)
+				if err != nil {
+					t.Errorf("websocket.Accept: %v", err)
+					return
+				}
 				_ = conn.Close(tc.code, "test close")
 			}))
 			t.Cleanup(srv.Close)
