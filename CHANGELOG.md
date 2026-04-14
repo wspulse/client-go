@@ -7,6 +7,8 @@
 - `ErrNetworkUnhealthy`: returned to `OnTransportDrop` when the client sends a ping and the server does not reply within `writeTimeout`. Previously the callback received a generic `net.ErrClosed` with the root cause lost.
 - `ErrServerClosed`: returned to `OnTransportDrop` when the server initiates a WebSocket close handshake (any close frame status code). Previously the callback received a library-specific error type from `coder/websocket`.
 
+## [0.6.0] - 2026-04-13
+
 ### Changed
 
 - **BREAKING**: Replace `gorilla/websocket` (archived) with `coder/websocket` as the underlying WebSocket transport
@@ -16,8 +18,6 @@
 - Extract `pingPump` as a dedicated goroutine (was inlined in `writePump`), giving a 3-pump architecture: readPump + writePump + pingPump
 - Internal `dialer` interface now accepts `context.Context`; reconnect dial is cancellable via `Close()`
 
----
-
 ## [0.5.1] - 2026-04-08
 
 ### Fixed
@@ -26,8 +26,6 @@
 - `onTransportDrop` now receives `nil` when triggered by `Close()`, matching the behaviour contract. Previously it received a misleading read-side error ("use of closed network connection").
 - `onTransportDrop` now receives the original write error when `writePump` fails (e.g. write timeout). Previously the write error was discarded and `onTransportDrop` received a secondary read-side error.
 - Fixed a race where a close-induced write error could override the original read error in `onTransportDrop`. The `writeErrCh` read now happens before `wsConnection.Close()` to prevent spurious override.
-
----
 
 ## [0.5.0] - 2026-04-04
 
@@ -46,8 +44,6 @@
 
 - **BREAKING**: `Frame.ID` field removed — transport layer does not use it. Applications needing message IDs should use Payload.
 
----
-
 ## [0.4.1] - 2026-03-28
 
 ### Changed
@@ -55,8 +51,6 @@
 - Migrate integration tests from in-process `wspulse/server` to out-of-process `testserver` binary
 - Remove direct `github.com/wspulse/server` dependency — only `core` remains
 - Unify log message prefix from `wspulse/client:` to `wspulse:` across all internal logging
-
----
 
 ## [0.4.0] - 2026-03-24
 
@@ -68,8 +62,6 @@
 
 - `WithOnReconnect` callback option (replaced by `WithOnTransportRestore`)
 
----
-
 ## [0.3.0] - 2026-03-22
 
 ### Changed
@@ -78,8 +70,6 @@
   unlimited. Use `0` for unlimited retries.
 - Validation error messages use fully-qualified field names (`heartbeat.pongWait`,
   `autoReconnect.baseDelay`) to match the config validation contract.
-
----
 
 ## [0.2.2] - 2026-03-21
 
@@ -96,15 +86,11 @@
 - CI/CD: auto-label on PR opened, tag-triggered GitHub Release, `release.yml`
   changelog categories, CD workflow.
 
----
-
 ## [0.2.1] - 2026-03-13
 
 ### Changed
 
 - Bump `github.com/wspulse/server` to v0.3.0 (test-only dependency; server package renamed to `wspulse`)
-
----
 
 ## [0.2.0] - 2026-03-12
 
@@ -125,8 +111,6 @@
 - Backoff function now applies equal jitter (`[delay/2, delay]`) to prevent thundering herd on mass reconnect
 - `Done()` GoDoc corrected: channel closes on any permanent disconnect, not only on `Close()`
 - `Dial` error now uses correct `wspulse: dial:` prefix per project convention
-
----
 
 ## [0.1.0] - 2026-03-10
 
@@ -149,7 +133,8 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/wspulse/client-go/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/wspulse/client-go/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/wspulse/client-go/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/wspulse/client-go/compare/v0.4.0...v0.4.1
