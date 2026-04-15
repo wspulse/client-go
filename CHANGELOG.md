@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-15
+
 ### Added
 
 - `ErrNetworkUnhealthy`: returned to `OnTransportDrop` when the client sends a ping and the server does not reply within `writeTimeout`. Previously the callback received a generic `net.ErrClosed` with the root cause lost.
