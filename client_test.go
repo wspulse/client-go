@@ -64,26 +64,6 @@ func TestClient_WithCodec_Nil_Panics(t *testing.T) {
 	})
 }
 
-func TestClient_WithPingInterval_InvalidParams_Panics(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name    string
-		d       time.Duration
-		wantMsg string
-	}{
-		{"zero", 0, "wspulse: pingInterval must be positive"},
-		{"negative", -1 * time.Second, "wspulse: pingInterval must be positive"},
-		{"exceeds max", 2 * time.Minute, "wspulse: pingInterval exceeds maximum (1m)"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.PanicsWithValue(t, tc.wantMsg, func() {
-				_ = client.WithPingInterval(tc.d)
-			})
-		})
-	}
-}
-
 func TestClient_WithWriteTimeout_InvalidParams_Panics(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -262,24 +242,6 @@ func TestClient_WithMaxMessageSize_BoundaryValues(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opt := client.WithMaxMessageSize(tc.n)
-			assert.NotNil(t, opt)
-		})
-	}
-}
-
-func TestClient_WithPingInterval_ValidParams_NoPanic(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		d    time.Duration
-	}{
-		{"minimum", 1 * time.Millisecond},
-		{"typical", 20 * time.Second},
-		{"maximum", 1 * time.Minute},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			opt := client.WithPingInterval(tc.d)
 			assert.NotNil(t, opt)
 		})
 	}

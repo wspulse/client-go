@@ -24,13 +24,11 @@ type mockTransport struct {
 
 	mu           sync.Mutex
 	readLimit    int64
-	readLimitSet chan struct{}                   // signaled once when SetReadLimit is first called with a non-zero value
-	writeEntered chan struct{}                   // when non-nil, signaled each time Write is entered (before blocking)
-	pingCh       chan struct{}                   // when non-nil, signaled each time Ping is called
-	pingFunc     func(ctx context.Context) error // when non-nil, Ping delegates to this function
-	closeCalled  chan closeCall                  // when non-nil, signaled on Close(code, reason)
-	writeErr     error                           // when non-nil, Write returns this error immediately
-	closeHook    func()                          // when non-nil, runs inside doClose after closeCh is closed
+	readLimitSet chan struct{}  // signaled once when SetReadLimit is first called with a non-zero value
+	writeEntered chan struct{}  // when non-nil, signaled each time Write is entered (before blocking)
+	closeCalled  chan closeCall // when non-nil, signaled on Close(code, reason)
+	writeErr     error          // when non-nil, Write returns this error immediately
+	closeHook    func()         // when non-nil, runs inside doClose after closeCh is closed
 	closed       bool
 }
 
@@ -121,19 +119,7 @@ func (m *mockTransport) Write(ctx context.Context, typ wspulse.MessageType, data
 	}
 }
 
-func (m *mockTransport) Ping(ctx context.Context) error {
-	if m.pingCh != nil {
-		select {
-		case m.pingCh <- struct{}{}:
-		default:
-		}
-	}
-	m.mu.Lock()
-	fn := m.pingFunc
-	m.mu.Unlock()
-	if fn != nil {
-		return fn(ctx)
-	}
+func (m *mockTransport) Ping(_ context.Context) error {
 	return nil
 }
 

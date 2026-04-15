@@ -18,14 +18,12 @@ import (
 
 // ── fakeClock ────────────────────────────────────────────────────────────────
 
-// fakeClock replaces both NewTimer (backoff) and NewTicker (heartbeat) with
-// controllable fakes. No real timers fire — tests drive time explicitly.
+// fakeClock replaces NewTimer (backoff) with a controllable fake.
+// No real timers fire — tests drive time explicitly.
 type fakeClock struct {
-	mu          sync.Mutex
-	timers      []*fakeTimerEntry
-	tickers     []*fakeTickerEntry
-	timerAdded  chan struct{}
-	tickerAdded chan struct{}
+	mu         sync.Mutex
+	timers     []*fakeTimerEntry
+	timerAdded chan struct{}
 }
 
 type fakeTimerEntry struct {
@@ -33,13 +31,8 @@ type fakeTimerEntry struct {
 	timer *time.Timer
 }
 
-type fakeTickerEntry struct {
-	d      time.Duration
-	ticker *time.Ticker
-}
-
 func newFakeClock() *fakeClock {
-	return &fakeClock{timerAdded: make(chan struct{}, 16), tickerAdded: make(chan struct{}, 16)}
+	return &fakeClock{timerAdded: make(chan struct{}, 16)}
 }
 
 // NewTimer returns a stopped timer that will not fire on its own.
@@ -56,50 +49,11 @@ func (fc *fakeClock) NewTimer(d time.Duration) *time.Timer {
 	return t
 }
 
-// NewTicker returns a stopped ticker that will never fire on its own.
-func (fc *fakeClock) NewTicker(d time.Duration) *time.Ticker {
-	t := time.NewTicker(time.Hour)
-	t.Stop()
-	fc.mu.Lock()
-	fc.tickers = append(fc.tickers, &fakeTickerEntry{d: d, ticker: t})
-	select {
-	case fc.tickerAdded <- struct{}{}:
-	default:
-	}
-	fc.mu.Unlock()
-	return t
-}
-
 // TimerCount returns the number of registered timers.
 func (fc *fakeClock) TimerCount() int {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	return len(fc.timers)
-}
-
-// TickerCount returns the number of registered tickers.
-func (fc *fakeClock) TickerCount() int {
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	return len(fc.tickers)
-}
-
-// fireTicker fires the i-th registered ticker by resetting it to 1ns.
-// The consumer (pingPump) reads from ticker.C and acts on the tick.
-// Call stopTicker(i) after verifying the side effect to prevent repeated ticks.
-func (fc *fakeClock) fireTicker(i int) {
-	fc.mu.Lock()
-	t := fc.tickers[i].ticker
-	fc.mu.Unlock()
-	t.Reset(time.Nanosecond)
-}
-
-// stopTicker stops the i-th registered ticker.
-func (fc *fakeClock) stopTicker(i int) {
-	fc.mu.Lock()
-	t := fc.tickers[i].ticker
-	fc.mu.Unlock()
-	t.Stop()
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

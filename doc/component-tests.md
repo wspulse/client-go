@@ -19,9 +19,8 @@ deterministic and run with `make check`.
 | 4   | Max retries exhausted, `Done()` closes                              | `TestAutoReconnect_MaxRetriesExhausted_ClosesDone`           | reconnect_test.go   |
 | 5   | `Close()` during reconnect/backoff, loop stops cleanly              | `TestAutoReconnect_CloseDuringBackoff`                       | reconnect_test.go   |
 | 6   | `Send()` on closed client, `ErrConnectionClosed`                    | `TestSend_AfterClose_ReturnsErrConnectionClosed`             | basic_test.go       |
-| 7   | Heartbeat ping then read error, client disconnects with non-nil error | `TestHeartbeat_ReadError_DisconnectsClient`                  | misc_test.go        |
-| 8   | Concurrent sends: no data race or interleaving                      | `TestConcurrentSendAndClose_NoRace`                          | lifecycle_test.go   |
-| 9   | Concurrent `Close()` + transport drop, `onDisconnect` exactly once  | `TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce`| lifecycle_test.go   |
+| 7   | Concurrent sends: no data race or interleaving                      | `TestConcurrentSendAndClose_NoRace`                          | lifecycle_test.go   |
+| 8   | Concurrent `Close()` + transport drop, `onDisconnect` exactly once  | `TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce`| lifecycle_test.go   |
 
 ## Additional Tests
 
@@ -78,9 +77,6 @@ deterministic and run with `make check`.
 | `TestWithDialHeaders`                              | Custom dial headers are forwarded to the dialer               |
 | `TestWithMaxMessageSize`                           | `SetReadLimit` is called with configured size                 |
 | `TestWithMaxMessageSize_OversizedMessage`          | Oversized message triggers read error                         |
-| `TestPingInterval_SendsPings`                      | Ping messages are sent at configured interval                 |
-| `TestPongTimeout_DisconnectsClient`                | Pong timeout force-closes transport                           |
-| `TestWithPingInterval_ValidParams_Applied`         | `WithPingInterval` option is accepted                         |
 | `TestWithLogger_ValidLogger_Applied`               | `WithLogger` option is accepted                               |
 
-**Total: 42 component tests** (9 contract scenarios + additional per-feature tests).
+**Total: 38 component tests** (8 contract scenarios + additional per-feature tests).

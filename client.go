@@ -22,13 +22,6 @@ var ErrRetriesExhausted = errors.New("wspulse: max reconnect retries exhausted")
 // connection and auto-reconnect is disabled.
 var ErrConnectionLost = errors.New("wspulse: connection lost")
 
-// ErrNetworkUnhealthy is returned to OnTransportDrop when the client sent a
-// ping and the server did not reply within writeTimeout. It indicates the
-// connection is unhealthy — the root cause may be a slow or unresponsive
-// server, a stale NAT entry, or any other condition that prevents the pong
-// from arriving in time.
-var ErrNetworkUnhealthy = errors.New("wspulse: network unhealthy")
-
 // ErrServerClosed is returned to OnTransportDrop when the server initiated a
 // WebSocket close handshake by sending a close frame. This is a protocol-level
 // intentional close, distinct from an abrupt network drop.
@@ -58,13 +51,11 @@ type Client interface {
 //     reconnectLoop to stop.
 //
 // Pump lifecycle:
-//   - pumpCancel : cancels the pump context, causing readPump, writePump,
-//     and pingPump to exit. Called on reconnect (to swap pumps) and on
-//     Close() (to shut down permanently).
+//   - pumpCancel : cancels the pump context, causing readPump and writePump
+//     to exit. Called on reconnect (to swap pumps) and on Close() (to shut
+//     down permanently).
 //   - pumpDone   : closed by writePump on exit; used by reconnectLoop
 //     to wait for the old pumps before starting new ones.
-//   - pingPump   : exits via context cancellation; its errors propagate
-//     through CloseNow() → readPump (which sees a read error).
 type internalClient struct {
 	url                string
 	config             *clientConfig
@@ -116,16 +107,14 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 	pumpDone := make(chan struct{})
 	dropped := make(chan struct{})
 	writeErrCh := make(chan error, 1)
-	pingErrCh := make(chan error, 1)
 	conn := c.connection
 
 	c.pumpCancel = pumpCancel
 	c.pumpDone = pumpDone
 
-	c.goroutineWaitGroup.Add(4)
-	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(pumpCtx, conn, dropped, writeErrCh, pingErrCh) }()
+	c.goroutineWaitGroup.Add(3)
+	go func() { defer c.goroutineWaitGroup.Done(); c.readPump(pumpCtx, conn, dropped, writeErrCh) }()
 	go func() { defer c.goroutineWaitGroup.Done(); c.writePump(pumpCtx, conn, pumpDone, writeErrCh) }()
-	go func() { defer c.goroutineWaitGroup.Done(); c.pingPump(pumpCtx, conn, pingErrCh) }()
 	if config.autoReconnect {
 		go func() { defer c.goroutineWaitGroup.Done(); c.reconnectLoop(dropped) }()
 	} else {
@@ -223,7 +212,7 @@ func (c *internalClient) dialOnce(ctx context.Context) error {
 	return nil
 }
 
-func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error, pingErrCh <-chan error) {
+func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error) {
 
 	var readErr error
 
@@ -234,18 +223,13 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 				zap.Any("panic", r),
 			)
 		}
-		// Capture any write or ping error BEFORE closing the transport.
-		// Priority: pingErrCh > writeErrCh > readErr.
+		// Capture any write error BEFORE closing the transport.
+		// Priority: writeErrCh > readErr.
 		// Reading before CloseNow() prevents a spurious close-induced
 		// write error from writePump from overriding the original root cause.
 		var writeErr error
 		select {
 		case writeErr = <-writeErrCh:
-		default:
-		}
-		var pingErr error
-		select {
-		case pingErr = <-pingErrCh:
 		default:
 		}
 
@@ -263,17 +247,13 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 
 		// Determine the root-cause error for onTransportDrop:
 		//   1. User-initiated close → nil (behaviour contract).
-		//   2. pingPump reported ErrNetworkUnhealthy → use it (root cause lost via CloseNow).
-		//   3. writePump reported an error → use it (root cause).
-		//   4. Otherwise → readPump's own readErr (may be ErrServerClosed from adapter).
+		//   2. writePump reported an error → use it (root cause).
+		//   3. Otherwise → readPump's own readErr (may be ErrServerClosed from adapter).
 		select {
 		case <-c.done:
 			readErr = nil
 		default:
-			switch {
-			case pingErr != nil:
-				readErr = pingErr
-			case writeErr != nil:
+			if writeErr != nil {
 				readErr = writeErr
 			}
 		}
@@ -405,61 +385,6 @@ func (c *internalClient) gracefulClose(transport wspulse.Transport) {
 	}
 }
 
-func (c *internalClient) pingPump(ctx context.Context, transport wspulse.Transport, pingErrCh chan<- error) {
-	ticker := c.clock.NewTicker(c.config.pingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := c.doPing(ctx, transport, pingErrCh); err != nil {
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// doPing sends a ping and waits for the pong within writeTimeout.
-// If the parent context is cancelled (reconnect or close), returns
-// without logging or killing the transport — that is a normal exit.
-// If the pong times out, sends ErrNetworkUnhealthy to pingErrCh so readPump
-// can report the root cause in onTransportDrop, then force-closes the transport.
-// For other ping failures the transport is closed but pingErrCh is not written,
-// letting readPump's own error (e.g. ErrServerClosed) take priority.
-func (c *internalClient) doPing(ctx context.Context, transport wspulse.Transport, pingErrCh chan<- error) error {
-	pingCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
-	defer cancel()
-	if err := transport.Ping(pingCtx); err != nil {
-		// Parent context cancelled — normal shutdown or reconnect.
-		if ctx.Err() != nil {
-			return err
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			// Pong timeout — send ErrNetworkUnhealthy before CloseNow() so
-			// the root cause is not lost when readPump sees a secondary
-			// net.ErrClosed from the closed transport.
-			c.logger.Warn("wspulse: pong timeout, closing transport",
-				zap.Error(err),
-			)
-			select {
-			case pingErrCh <- ErrNetworkUnhealthy:
-			default:
-			}
-		} else {
-			// Other ping failure (e.g. transport already closing) — do not
-			// override readPump's error, which carries the real root cause.
-			c.logger.Warn("wspulse: ping failed, closing transport",
-				zap.Error(err),
-			)
-		}
-		_ = transport.CloseNow()
-		return err
-	}
-	return nil
-}
-
 func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 	var disconnectErr error
 	defer func() {
@@ -573,7 +498,6 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		newPumpCtx, newPumpCancel := context.WithCancel(context.Background())
 		newPumpDone := make(chan struct{})
 		newWriteErrCh := make(chan error, 1)
-		newPingErrCh := make(chan error, 1)
 
 		c.mu.Lock()
 		c.pumpCancel = newPumpCancel
@@ -581,13 +505,12 @@ func (c *internalClient) reconnectLoop(dropped chan struct{}) {
 		conn := c.connection
 		c.mu.Unlock()
 
-		c.goroutineWaitGroup.Add(3)
+		c.goroutineWaitGroup.Add(2)
 		go func() {
 			defer c.goroutineWaitGroup.Done()
-			c.readPump(newPumpCtx, conn, dropped, newWriteErrCh, newPingErrCh)
+			c.readPump(newPumpCtx, conn, dropped, newWriteErrCh)
 		}()
 		go func() { defer c.goroutineWaitGroup.Done(); c.writePump(newPumpCtx, conn, newPumpDone, newWriteErrCh) }()
-		go func() { defer c.goroutineWaitGroup.Done(); c.pingPump(newPumpCtx, conn, newPingErrCh) }()
 		c.logger.Info("wspulse: reconnected",
 			zap.Int("attempt", attempt),
 			zap.String("url", c.url),
