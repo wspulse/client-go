@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING**: `WithPingInterval` option — client-side ping is removed; dead-connection detection is now handled exclusively by the Hub's server-side heartbeat.
+- **BREAKING**: `ErrNetworkUnhealthy` sentinel error — no longer applicable without client-side ping.
+
 ## [0.7.0] - 2026-04-15
 
 ### Added
