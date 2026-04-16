@@ -62,7 +62,7 @@ type internalClient struct {
 	logger             *zap.Logger
 	dialer             dialer
 	clock              clock
-	connection         wspulse.Transport
+	connection         transport
 	send               chan []byte
 	done               chan struct{}      // closed via once.Do on permanent disconnect
 	quit               chan struct{}      // closed together with done via once.Do
@@ -212,7 +212,7 @@ func (c *internalClient) dialOnce(ctx context.Context) error {
 	return nil
 }
 
-func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transport, dropped chan struct{}, writeErrCh <-chan error) {
+func (c *internalClient) readPump(ctx context.Context, transport transport, dropped chan struct{}, writeErrCh <-chan error) {
 
 	var readErr error
 
@@ -293,7 +293,7 @@ func (c *internalClient) readPump(ctx context.Context, transport wspulse.Transpo
 	}
 }
 
-func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transport, pumpDone chan struct{}, writeErrCh chan<- error) {
+func (c *internalClient) writePump(ctx context.Context, transport transport, pumpDone chan struct{}, writeErrCh chan<- error) {
 
 	defer func() {
 		_ = transport.CloseNow()
@@ -351,7 +351,7 @@ func (c *internalClient) writePump(ctx context.Context, transport wspulse.Transp
 // closeOrForce sends a close frame if the client is shutting down, or
 // returns immediately if yielding for reconnect. In both cases the
 // deferred CloseNow() in writePump guarantees the transport is released.
-func (c *internalClient) closeOrForce(transport wspulse.Transport) {
+func (c *internalClient) closeOrForce(transport transport) {
 	select {
 	case <-c.done:
 		c.logger.Debug("wspulse: writePump stopping (client closed)")
@@ -369,7 +369,7 @@ func (c *internalClient) closeOrForce(transport wspulse.Transport) {
 // goroutine with a timer fallback. The goroutine is added to
 // goroutineWaitGroup so Close() does not return until it exits — even
 // when the timer fires and CloseNow() is called first.
-func (c *internalClient) gracefulClose(transport wspulse.Transport) {
+func (c *internalClient) gracefulClose(transport transport) {
 	done := make(chan struct{})
 	c.goroutineWaitGroup.Go(func() {
 		_ = transport.Close(wspulse.StatusNormalClosure, "")

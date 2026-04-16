@@ -119,10 +119,6 @@ func (m *mockTransport) Write(ctx context.Context, typ wspulse.MessageType, data
 	}
 }
 
-func (m *mockTransport) Ping(_ context.Context) error {
-	return nil
-}
-
 func (m *mockTransport) SetReadLimit(limit int64) {
 	m.mu.Lock()
 	m.readLimit = limit
@@ -234,7 +230,7 @@ func newMockDialer(results ...mockDialResult) *mockDialer {
 	}
 }
 
-func (d *mockDialer) Dial(_ context.Context, _ string, _ http.Header) (wspulse.Transport, error) {
+func (d *mockDialer) Dial(_ context.Context, _ string, _ http.Header) (client.Transport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.callCount >= len(d.results) {

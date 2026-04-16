@@ -123,7 +123,7 @@ type headerCapturingDialer struct {
 	called    atomic.Bool
 }
 
-func (d *headerCapturingDialer) Dial(_ context.Context, _ string, header http.Header) (wspulse.Transport, error) {
+func (d *headerCapturingDialer) Dial(_ context.Context, _ string, header http.Header) (client.Transport, error) {
 	if d.onDial != nil {
 		d.onDial(header)
 	}

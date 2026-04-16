@@ -21,6 +21,9 @@ func WithClock(c Clock) ClientOption {
 	return func(cfg *clientConfig) { cfg.clock = c }
 }
 
+// Transport exports the internal transport interface for testing only.
+type Transport = transport
+
 // Dialer exports the internal dialer interface for testing only.
 type Dialer = dialer
 
