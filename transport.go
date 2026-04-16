@@ -31,6 +31,8 @@ type coderTransport struct {
 	conn *websocket.Conn
 }
 
+var _ transport = (*coderTransport)(nil)
+
 func (t *coderTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	typ, data, err := t.conn.Read(ctx)
 	if err != nil && websocket.CloseStatus(err) != -1 {
