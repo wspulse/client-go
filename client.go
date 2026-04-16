@@ -202,12 +202,12 @@ func (c *internalClient) Done() <-chan struct{} { return c.done }
 // ── internal ──────────────────────────────────────────────────────────────────
 
 func (c *internalClient) dialOnce(ctx context.Context) error {
-	transport, err := c.dialer.Dial(ctx, c.url, c.config.dialHeaders)
+	trans, err := c.dialer.Dial(ctx, c.url, c.config.dialHeaders)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	c.connection = transport
+	c.connection = trans
 	c.mu.Unlock()
 	return nil
 }
