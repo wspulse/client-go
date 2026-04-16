@@ -212,7 +212,7 @@ func (c *internalClient) dialOnce(ctx context.Context) error {
 	return nil
 }
 
-func (c *internalClient) readPump(ctx context.Context, transport transport, dropped chan struct{}, writeErrCh <-chan error) {
+func (c *internalClient) readPump(ctx context.Context, trans transport, dropped chan struct{}, writeErrCh <-chan error) {
 
 	var readErr error
 
@@ -242,7 +242,7 @@ func (c *internalClient) readPump(ctx context.Context, transport transport, drop
 		select {
 		case <-c.done:
 		default:
-			_ = transport.CloseNow()
+			_ = trans.CloseNow()
 		}
 
 		// Determine the root-cause error for onTransportDrop:
@@ -271,11 +271,11 @@ func (c *internalClient) readPump(ctx context.Context, transport transport, drop
 	}()
 
 	if c.config.maxMessageSize > 0 {
-		transport.SetReadLimit(c.config.maxMessageSize)
+		trans.SetReadLimit(c.config.maxMessageSize)
 	}
 
 	for {
-		_, data, err := transport.Read(ctx)
+		_, data, err := trans.Read(ctx)
 		if err != nil {
 			readErr = err
 			return
@@ -293,10 +293,10 @@ func (c *internalClient) readPump(ctx context.Context, transport transport, drop
 	}
 }
 
-func (c *internalClient) writePump(ctx context.Context, transport transport, pumpDone chan struct{}, writeErrCh chan<- error) {
+func (c *internalClient) writePump(ctx context.Context, trans transport, pumpDone chan struct{}, writeErrCh chan<- error) {
 
 	defer func() {
-		_ = transport.CloseNow()
+		_ = trans.CloseNow()
 		close(pumpDone)
 	}()
 
@@ -305,7 +305,7 @@ func (c *internalClient) writePump(ctx context.Context, transport transport, pum
 		// writePump can take over on a fresh connection.
 		select {
 		case <-ctx.Done():
-			c.closeOrForce(transport)
+			c.closeOrForce(trans)
 			return
 		default:
 		}
@@ -314,7 +314,7 @@ func (c *internalClient) writePump(ctx context.Context, transport transport, pum
 		select {
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			c.gracefulClose(transport)
+			c.gracefulClose(trans)
 			return
 		default:
 		}
@@ -322,7 +322,7 @@ func (c *internalClient) writePump(ctx context.Context, transport transport, pum
 		select {
 		case data := <-c.send:
 			writeCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
-			err := transport.Write(writeCtx, c.config.codec.FrameType(), data)
+			err := trans.Write(writeCtx, c.config.codec.FrameType(), data)
 			cancel()
 			if err != nil {
 				c.logger.Warn("wspulse: write failed",
@@ -338,11 +338,11 @@ func (c *internalClient) writePump(ctx context.Context, transport transport, pum
 
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
-			c.gracefulClose(transport)
+			c.gracefulClose(trans)
 			return
 
 		case <-ctx.Done():
-			c.closeOrForce(transport)
+			c.closeOrForce(trans)
 			return
 		}
 	}
@@ -351,11 +351,11 @@ func (c *internalClient) writePump(ctx context.Context, transport transport, pum
 // closeOrForce sends a close frame if the client is shutting down, or
 // returns immediately if yielding for reconnect. In both cases the
 // deferred CloseNow() in writePump guarantees the transport is released.
-func (c *internalClient) closeOrForce(transport transport) {
+func (c *internalClient) closeOrForce(trans transport) {
 	select {
 	case <-c.done:
 		c.logger.Debug("wspulse: writePump stopping (client closed)")
-		c.gracefulClose(transport)
+		c.gracefulClose(trans)
 	default:
 		c.logger.Debug("wspulse: writePump yielding for reconnect")
 	}
@@ -369,10 +369,10 @@ func (c *internalClient) closeOrForce(transport transport) {
 // goroutine with a timer fallback. The goroutine is added to
 // goroutineWaitGroup so Close() does not return until it exits — even
 // when the timer fires and CloseNow() is called first.
-func (c *internalClient) gracefulClose(transport transport) {
+func (c *internalClient) gracefulClose(trans transport) {
 	done := make(chan struct{})
 	c.goroutineWaitGroup.Go(func() {
-		_ = transport.Close(wspulse.StatusNormalClosure, "")
+		_ = trans.Close(wspulse.StatusNormalClosure, "")
 		close(done)
 	})
 	t := time.NewTimer(c.config.writeTimeout)
@@ -381,7 +381,7 @@ func (c *internalClient) gracefulClose(transport transport) {
 	case <-done:
 	case <-t.C:
 		c.logger.Warn("wspulse: close frame timed out, forcing close")
-		_ = transport.CloseNow()
+		_ = trans.CloseNow()
 	}
 }
 

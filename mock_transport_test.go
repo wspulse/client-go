@@ -259,5 +259,8 @@ func (d *mockDialer) CallCount() int {
 	return d.callCount
 }
 
+// Ensure mockTransport satisfies the exported Transport type alias.
+var _ client.Transport = (*mockTransport)(nil)
+
 // Ensure mockDialer satisfies the exported Dialer type alias.
 var _ client.Dialer = (*mockDialer)(nil)
