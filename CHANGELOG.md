@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Replace `core.Transport` with a client-local `transport` interface; `Ping` is omitted
+  since dead-connection detection is server-side only. Requires `wspulse/core` v0.5.0+.
+
 ## [0.8.0] - 2026-04-16
 
 ### Removed
