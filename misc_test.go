@@ -1,13 +1,10 @@
 package client_test
 
 import (
-	"context"
 	"errors"
-	"net"
 	"net/http"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,111 +116,6 @@ func TestSend_EncodeError_ReturnsError(t *testing.T) {
 	require.Error(t, err, "expected encode error")
 }
 
-func TestPingInterval_SendsPings(t *testing.T) {
-	t.Parallel()
-	// Verify that with a fake clock, firing the heartbeat ticker causes a ping.
-	mt := newMockTransport()
-	mt.pingCh = make(chan struct{}, 16)
-	fc := newFakeClock()
-	md := newMockDialer(mockDialResult{transport: mt})
-
-	c, err := client.Dial("ws://mock",
-		client.WithDialer(md),
-		client.WithClock(fc),
-		client.WithPingInterval(50*time.Millisecond),
-		client.WithWriteTimeout(5*time.Second),
-	)
-	require.NoError(t, err, "Dial failed")
-	t.Cleanup(func() { _ = c.Close() })
-
-	// Wait for pingPump to create the heartbeat ticker.
-	requireReceive(t, fc.tickerAdded)
-
-	// Fire the ticker to trigger a ping.
-	fc.fireTicker(0)
-
-	// Verify ping was called.
-	requireReceive(t, mt.pingCh)
-	fc.stopTicker(0)
-}
-
-func TestHeartbeat_ReadError_DisconnectsClient(t *testing.T) {
-	t.Parallel()
-	// Verifies the observable heartbeat behaviour: the client sends pings
-	// via the heartbeat ticker, and when the transport dies the client disconnects.
-	mt := newMockTransport()
-	mt.pingCh = make(chan struct{}, 16)
-	fc := newFakeClock()
-	md := newMockDialer(mockDialResult{transport: mt})
-
-	disconnected := make(chan error, 1)
-	c, err := client.Dial("ws://mock",
-		client.WithDialer(md),
-		client.WithClock(fc),
-		client.WithPingInterval(50*time.Millisecond),
-		client.WithWriteTimeout(10*time.Second),
-		client.WithOnDisconnect(func(err error) {
-			disconnected <- err
-		}),
-	)
-	require.NoError(t, err, "Dial failed")
-	t.Cleanup(func() { _ = c.Close() })
-
-	// Wait for pingPump to create the heartbeat ticker.
-	requireReceive(t, fc.tickerAdded)
-
-	// Fire the ticker to trigger a ping.
-	fc.fireTicker(0)
-
-	// Verify a ping was sent.
-	requireReceive(t, mt.pingCh)
-	fc.stopTicker(0)
-
-	// Kill the transport to simulate a connection loss.
-	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("i/o timeout")})
-
-	got := requireReceive(t, disconnected)
-	assert.Error(t, got, "want non-nil error on disconnect")
-
-	requireDone(t, c)
-}
-
-func TestPongTimeout_DisconnectsClient(t *testing.T) {
-	t.Parallel()
-	// When the server never responds to a ping, pingPump force-closes the
-	// transport. pingFunc returns context.DeadlineExceeded immediately so
-	// the test does not depend on any real wall-clock timeout.
-	mt := newMockTransport()
-	mt.pingFunc = func(ctx context.Context) error {
-		return context.DeadlineExceeded
-	}
-	fc := newFakeClock()
-	md := newMockDialer(mockDialResult{transport: mt})
-
-	transportDropped := make(chan error, 1)
-	c, err := client.Dial("ws://mock",
-		client.WithDialer(md),
-		client.WithClock(fc),
-		client.WithPingInterval(50*time.Millisecond),
-		client.WithOnTransportDrop(func(err error) {
-			transportDropped <- err
-		}),
-	)
-	require.NoError(t, err, "Dial failed")
-	t.Cleanup(func() { _ = c.Close() })
-
-	// Wait for pingPump to create the ticker.
-	requireReceive(t, fc.tickerAdded)
-
-	// Fire the ticker — pingFunc returns DeadlineExceeded immediately,
-	// doPing calls CloseNow(), readPump signals onTransportDrop.
-	fc.fireTicker(0)
-
-	got := requireReceive(t, transportDropped)
-	assert.Error(t, got, "want non-nil error on pong timeout")
-	fc.stopTicker(0)
-}
-
 func TestWithDialHeaders(t *testing.T) {
 	t.Parallel()
 	// WithDialHeaders passes headers to the dialer. We verify the mock dialer
@@ -327,14 +219,5 @@ func TestWithLogger_ValidLogger_Applied(t *testing.T) {
 	// panic and the client can be created and closed.
 	logger, _ := zap.NewDevelopment()
 	c, _, _ := dialWithMock(t, client.WithLogger(logger))
-	_ = c.Close()
-}
-
-func TestWithPingInterval_ValidParams_Applied(t *testing.T) {
-	t.Parallel()
-	c, _, _ := dialWithMock(t,
-		client.WithPingInterval(5*time.Second),
-		client.WithWriteTimeout(3*time.Second),
-	)
 	_ = c.Close()
 }

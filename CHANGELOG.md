@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-16
+
+### Removed
+
+- **BREAKING**: `WithPingInterval` option — client-side ping is removed; dead-connection detection is now handled exclusively by the Hub's server-side heartbeat.
+- **BREAKING**: `ErrNetworkUnhealthy` sentinel error — no longer applicable without client-side ping.
+
 ## [0.7.0] - 2026-04-15
 
 ### Added
@@ -135,7 +142,9 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/wspulse/client-go/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/wspulse/client-go/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/wspulse/client-go/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/wspulse/client-go/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/wspulse/client-go/compare/v0.4.1...v0.5.0

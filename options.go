@@ -12,7 +12,6 @@ import (
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
 const (
-	maxPingInterval  = 1 * time.Minute  // WithPingInterval upper bound
 	maxWriteTimeout  = 30 * time.Second // WithWriteTimeout upper bound
 	maxMsgSizeBytes  = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
 	maxBaseDelay     = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
@@ -36,7 +35,6 @@ type clientConfig struct {
 	maxRetries         int // 0 means retry indefinitely
 	baseDelay          time.Duration
 	maxDelay           time.Duration
-	pingInterval       time.Duration
 	writeTimeout       time.Duration
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
 	sendBufferSize     int   // outbound channel capacity (number of frames)
@@ -52,7 +50,6 @@ func defaultClientConfig() *clientConfig {
 		maxRetries:     10,
 		baseDelay:      1 * time.Second,
 		maxDelay:       30 * time.Second,
-		pingInterval:   20 * time.Second,
 		writeTimeout:   10 * time.Second,
 		maxMessageSize: 1 << 20, // 1 MiB
 		sendBufferSize: 256,
@@ -142,21 +139,8 @@ func WithLogger(logger *zap.Logger) ClientOption {
 	return func(c *clientConfig) { c.logger = logger }
 }
 
-// WithPingInterval sets the interval between heartbeat pings.
-// d must be in (0, 1m]. Default is 20s.
-func WithPingInterval(d time.Duration) ClientOption {
-	if d <= 0 {
-		panic("wspulse: pingInterval must be positive")
-	}
-	if d > maxPingInterval {
-		panic("wspulse: pingInterval exceeds maximum (1m)")
-	}
-	return func(c *clientConfig) { c.pingInterval = d }
-}
-
-// WithWriteTimeout sets the timeout for all write operations: data frames,
-// ping/pong, and the close handshake. Pong must arrive within this duration
-// or the connection is considered dead. d must be in (0, 30s]. Default is 10s.
+// WithWriteTimeout sets the timeout for write operations: data frames and the
+// close handshake. d must be in (0, 30s]. Default is 10s.
 func WithWriteTimeout(d time.Duration) ClientOption {
 	if d <= 0 {
 		panic("wspulse: writeTimeout must be positive")

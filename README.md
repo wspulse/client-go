@@ -80,8 +80,6 @@ client.WithOnMessage(func(f wspulse.Frame) {
         // handle message
     case "chat.ack":
         // handle acknowledgement
-    case "pong":
-        // heartbeat response
     }
 })
 ```
@@ -137,7 +135,6 @@ See [wspulse/core](https://github.com/wspulse/core) for the full `router` API.
 | `WithOnDisconnect(fn)`                   | —               |
 | `WithOnTransportDrop(fn)`                | —               |
 | `WithAutoReconnect(max, base, maxDelay)` | disabled              |
-| `WithPingInterval(d)`                    | 20s                   |
 | `WithWriteTimeout(d)`                    | 10s                   |
 | `WithMaxMessageSize(n)`                  | 1 MiB                 |
 | `WithCodec(c)`                           | JSONCodec             |
