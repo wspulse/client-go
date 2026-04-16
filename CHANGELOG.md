@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-04-16
+
 ### Changed
 
 - Replace `core.Transport` with a client-local `transport` interface; `Ping` is omitted
