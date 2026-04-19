@@ -73,7 +73,7 @@ func TestSend_WritesCorrectData(t *testing.T) {
 	assert.Equal(t, "test", wireMsg.Event)
 }
 
-func TestClose_DiscardsBufferedFrames(t *testing.T) {
+func TestClose_DiscardsBufferedMessages(t *testing.T) {
 	t.Parallel()
 	// Contract: close() discards unsent buffered messages. After Close(),
 	// writePump must write at most 1 data message (the one in-flight when
@@ -131,7 +131,7 @@ func TestClose_DiscardsBufferedFrames(t *testing.T) {
 
 func TestNormalCloseFrame(t *testing.T) {
 	t.Parallel()
-	// When the client calls Close(), writePump should send a WebSocket close message
+	// When the client calls Close(), writePump should send a WebSocket close frame
 	// with StatusNormalClosure before exiting.
 	mt := newMockTransport()
 	mt.closeCalled = make(chan closeCall, 1)

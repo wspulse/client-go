@@ -58,7 +58,7 @@ func TestSend_CustomBufferSize_Applied(t *testing.T) {
 	assert.Equal(t, bufSize, client.SendBufferCap(c), "SendBufferCap")
 }
 
-func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
+func TestReadPump_DecodeFailure_DropsMessage(t *testing.T) {
 	t.Parallel()
 	received := make(chan wspulse.Message, 5)
 	c, mt, _ := dialWithMock(t,
