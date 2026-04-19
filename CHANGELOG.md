@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `Client.Send(f wspulse.Frame)` renamed to `Client.Send(m wspulse.Message)` — follows upstream core rename (`wspulse/.github#34`)
+- **BREAKING**: `WithOnMessage(fn func(wspulse.Frame))` renamed to `WithOnMessage(fn func(wspulse.Message))` — follows upstream core rename
+- `Codec.FrameType()` usage updated to `Codec.WireType()` — follows upstream core rename
+
 ## [0.8.1] - 2026-04-16
 
 ### Changed

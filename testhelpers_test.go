@@ -149,12 +149,12 @@ func requireDone(t *testing.T, c client.Client) {
 // failEncodeCodecComponent is a test codec whose Encode always returns an error.
 type failEncodeCodecComponent struct{}
 
-func (failEncodeCodecComponent) Encode(wspulse.Frame) ([]byte, error) {
+func (failEncodeCodecComponent) Encode(wspulse.Message) ([]byte, error) {
 	return nil, errors.New("wspulse: encode fail")
 }
 
-func (failEncodeCodecComponent) Decode(data []byte) (wspulse.Frame, error) {
-	return wspulse.Frame{}, nil
+func (failEncodeCodecComponent) Decode(data []byte) (wspulse.Message, error) {
+	return wspulse.Message{}, nil
 }
 
-func (failEncodeCodecComponent) FrameType() wspulse.MessageType { return wspulse.TextMessage }
+func (failEncodeCodecComponent) WireType() wspulse.MessageType { return wspulse.TextMessage }

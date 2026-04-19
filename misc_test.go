@@ -37,7 +37,7 @@ func TestSend_BufferFull_ReturnsErrSendBufferFull(t *testing.T) {
 
 	sawFull := false
 	for i := 0; i < 100; i++ {
-		err := c.Send(wspulse.Frame{Event: "flood", Payload: []byte(`"x"`)})
+		err := c.Send(wspulse.Message{Event: "flood", Payload: []byte(`"x"`)})
 		if errors.Is(err, wspulse.ErrSendBufferFull) {
 			sawFull = true
 			break
@@ -60,19 +60,19 @@ func TestSend_CustomBufferSize_Applied(t *testing.T) {
 
 func TestReadPump_DecodeFailure_DropsFrame(t *testing.T) {
 	t.Parallel()
-	received := make(chan wspulse.Frame, 5)
+	received := make(chan wspulse.Message, 5)
 	c, mt, _ := dialWithMock(t,
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			received <- f
 		}),
 	)
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Inject an invalid JSON frame (decode failure — should be dropped).
+	// Inject an invalid JSON message (decode failure — should be dropped).
 	mt.InjectMessage(wspulse.TextMessage, []byte("not valid json{{{"))
-	// Inject a valid frame that should be delivered.
-	validFrame := `{"event":"valid-frame","payload":"ok"}`
-	mt.InjectMessage(wspulse.TextMessage, []byte(validFrame))
+	// Inject a valid message that should be delivered.
+	validMsg := `{"event":"valid-frame","payload":"ok"}`
+	mt.InjectMessage(wspulse.TextMessage, []byte(validMsg))
 
 	f := requireReceive(t, received)
 	assert.Equal(t, "valid-frame", f.Event)
@@ -82,7 +82,7 @@ func TestReadPump_PanicRecovery(t *testing.T) {
 	t.Parallel()
 	disconnected := make(chan error, 1)
 	c, mt, _ := dialWithMock(t,
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			panic("boom")
 		}),
 		client.WithOnDisconnect(func(err error) {
@@ -91,7 +91,7 @@ func TestReadPump_PanicRecovery(t *testing.T) {
 	)
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Inject a valid frame to trigger the panic in OnMessage.
+	// Inject a valid message to trigger the panic in OnMessage.
 	trigger := `{"event":"trigger","payload":null}`
 	mt.InjectMessage(wspulse.TextMessage, []byte(trigger))
 
@@ -112,7 +112,7 @@ func TestSend_EncodeError_ReturnsError(t *testing.T) {
 	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
-	err = c.Send(wspulse.Frame{Event: "msg"})
+	err = c.Send(wspulse.Message{Event: "msg"})
 	require.Error(t, err, "expected encode error")
 }
 
