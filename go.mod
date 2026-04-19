@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/stretchr/testify v1.11.1
-	github.com/wspulse/core v0.5.0
+	github.com/wspulse/core v0.6.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.1
 )

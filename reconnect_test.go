@@ -28,7 +28,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	)
 
 	restored := make(chan struct{}, 5)
-	received := make(chan wspulse.Frame, 5)
+	received := make(chan wspulse.Message, 5)
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
 		client.WithClock(fc),
@@ -39,7 +39,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 			default:
 			}
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- f:
 			default:
@@ -54,7 +54,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	go echoLoop(mt1, echo1Done)
 
 	// Verify initial connectivity.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
+	require.NoError(t, c.Send(wspulse.Message{Event: "before", Payload: []byte(`"1"`)}), "Send before kick")
 	f := requireReceive(t, received)
 	assert.Equal(t, "before", f.Event)
 
@@ -82,7 +82,7 @@ func TestAutoReconnect_ReconnectsAndDeliversMessages(t *testing.T) {
 	go echoLoop(mt2, echo2Done)
 
 	// Verify post-reconnect message delivery.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
+	require.NoError(t, c.Send(wspulse.Message{Event: "after", Payload: []byte(`"2"`)}), "Send after reconnect")
 	f2 := requireReceive(t, received)
 	assert.Equal(t, "after", f2.Event)
 }
@@ -177,7 +177,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 
 	var dropCount atomic.Int32
 	var restoreCount atomic.Int32
-	received := make(chan wspulse.Frame, 10)
+	received := make(chan wspulse.Message, 10)
 	restored := make(chan struct{}, cycles)
 
 	c, err := client.Dial("ws://mock",
@@ -194,7 +194,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 			default:
 			}
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- f:
 			default:
@@ -234,7 +234,7 @@ func TestAutoReconnect_MultipleRapidCycles(t *testing.T) {
 		go echoLoop(transports[idx], echoDone)
 	}
 
-	require.NoError(t, c.Send(wspulse.Frame{Event: "final", Payload: []byte(`"ok"`)}), "Send after cycles")
+	require.NoError(t, c.Send(wspulse.Message{Event: "final", Payload: []byte(`"ok"`)}), "Send after cycles")
 
 	f := requireReceive(t, received)
 	assert.Equal(t, "final", f.Event)
@@ -255,7 +255,7 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 			default:
 			}
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- struct{}{}:
 			default:
@@ -268,8 +268,8 @@ func TestAutoReconnect_Close_FiresOnDisconnect(t *testing.T) {
 	defer close(echoDone)
 	go echoLoop(mt, echoDone)
 
-	// Confirm the connection is established by round-tripping a frame.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
+	// Confirm the connection is established by round-tripping a message.
+	require.NoError(t, c.Send(wspulse.Message{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	requireReceive(t, received)
 
 	_ = c.Close()

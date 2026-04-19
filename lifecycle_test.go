@@ -152,9 +152,9 @@ func TestClose_WaitsForGoroutines_AutoReconnect(t *testing.T) {
 
 func TestDone_FiresOnServerDrop(t *testing.T) {
 	t.Parallel()
-	received := make(chan wspulse.Frame, 1)
+	received := make(chan wspulse.Message, 1)
 	c, mt, _ := dialWithMock(t,
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			received <- f
 		}),
 	)
@@ -164,8 +164,8 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 	echoDone := make(chan struct{})
 	go echoLoop(mt, echoDone)
 
-	// Confirm the connection is established by round-tripping a frame.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
+	// Confirm the connection is established by round-tripping a message.
+	require.NoError(t, c.Send(wspulse.Message{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	requireReceive(t, received)
 
 	// Stop echo and simulate server drop.
@@ -173,7 +173,7 @@ func TestDone_FiresOnServerDrop(t *testing.T) {
 	mt.InjectError(&net.OpError{Op: "read", Err: errors.New("connection reset")})
 
 	requireDone(t, c)
-	assert.ErrorIs(t, c.Send(wspulse.Frame{Event: "msg"}), wspulse.ErrConnectionClosed)
+	assert.ErrorIs(t, c.Send(wspulse.Message{Event: "msg"}), wspulse.ErrConnectionClosed)
 }
 
 func TestConcurrentSendAndClose_NoRace(t *testing.T) {
@@ -189,7 +189,7 @@ func TestConcurrentSendAndClose_NoRace(t *testing.T) {
 			defer wg.Done()
 			started <- struct{}{}
 			for j := 0; j < 50; j++ {
-				_ = c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`"x"`)})
+				_ = c.Send(wspulse.Message{Event: "msg", Payload: []byte(`"x"`)})
 			}
 		}()
 	}
@@ -221,7 +221,7 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 			default:
 			}
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- struct{}{}:
 			default:
@@ -236,8 +236,8 @@ func TestConcurrentCloseAndTransportDrop_OnDisconnectExactlyOnce(t *testing.T) {
 	defer close(echoDone)
 	go echoLoop(mt, echoDone)
 
-	// Confirm the connection is established by round-tripping a frame.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
+	// Confirm the connection is established by round-tripping a message.
+	require.NoError(t, c.Send(wspulse.Message{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	requireReceive(t, received)
 
 	// Simultaneously close the client and drop the transport.

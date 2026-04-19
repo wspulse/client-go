@@ -187,7 +187,7 @@ func TestClient_CallbackOptions_Valid_NoPanic(t *testing.T) {
 	// Verify that callback-related option builders accept valid callbacks
 	// without panicking and always return non-nil ClientOption values.
 	opts := []client.ClientOption{
-		client.WithOnMessage(func(f wspulse.Frame) {}),
+		client.WithOnMessage(func(f wspulse.Message) {}),
 		client.WithOnDisconnect(func(err error) {}),
 		client.WithOnTransportDrop(func(err error) {}),
 		client.WithOnTransportRestore(func() {}),

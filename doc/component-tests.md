@@ -28,7 +28,7 @@ deterministic and run with `make check`.
 
 | Test Name                                  | What It Covers                                         |
 | ------------------------------------------ | ------------------------------------------------------ |
-| `TestSend_WritesCorrectData`               | Encoded frame arrives at transport with correct payload |
+| `TestSend_WritesCorrectData`               | Encoded message arrives at transport with correct payload |
 | `TestClose_SafeToCallTwice`                | `Close()` is safe to call multiple times               |
 | `TestDone_ClosedAfterClose`                | `Done()` channel closes after `Close()`                |
 | `TestNormalCloseFrame`                     | `Close()` sends a WebSocket close frame                |
@@ -71,7 +71,7 @@ deterministic and run with `make check`.
 | -------------------------------------------------- | ------------------------------------------------------------- |
 | `TestSend_BufferFull_ReturnsErrSendBufferFull`     | `Send()` returns `ErrSendBufferFull` when buffer is saturated |
 | `TestSend_CustomBufferSize_Applied`                | `WithSendBufferSize` sets the channel capacity                |
-| `TestReadPump_DecodeFailure_DropsFrame`            | Malformed frame is dropped; connection continues              |
+| `TestReadPump_DecodeFailure_DropsMessage`           | Malformed message is dropped; connection continues              |
 | `TestSend_EncodeError_ReturnsError`                | `Send()` propagates codec encode errors                       |
 | `TestReadPump_PanicRecovery`                       | Panic inside `onMessage` is recovered gracefully              |
 | `TestWithDialHeaders`                              | Custom dial headers are forwarded to the dialer               |

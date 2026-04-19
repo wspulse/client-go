@@ -130,7 +130,7 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 			disconnectCount++
 			mu.Unlock()
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- struct{}{}:
 			default:
@@ -144,8 +144,8 @@ func TestClose_OnDisconnectFiresExactlyOnce(t *testing.T) {
 	defer close(echoDone)
 	go echoLoop(mt, echoDone)
 
-	// Confirm connection is established by round-tripping a frame.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
+	// Confirm connection is established by round-tripping a message.
+	require.NoError(t, c.Send(wspulse.Message{Event: "ping", Payload: []byte(`"1"`)}), "Send failed")
 	requireReceive(t, received)
 
 	_ = c.Close()
@@ -226,9 +226,9 @@ func TestOnTransportDrop_WritePumpDataWriteError(t *testing.T) {
 	)
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Inject write error, then send a frame to trigger writePump's data path.
+	// Inject write error, then send a message to trigger writePump's data path.
 	mt.SetWriteError(writeErr)
-	_ = c.Send(wspulse.Frame{Event: "ping"})
+	_ = c.Send(wspulse.Message{Event: "ping"})
 
 	got := requireReceive(t, transportDropErr)
 	assert.ErrorIs(t, got, writeErr, "onTransportDrop should receive the write error, not a read-side error")
@@ -272,12 +272,12 @@ func TestOnTransportDrop_ReadError_NotOverriddenByCloseInducedWriteError(t *test
 	require.NoError(t, err, "Dial failed")
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Block writes and send a frame so writePump enters Write and blocks.
+	// Block writes and send a message so writePump enters Write and blocks.
 	rawUnblock := mt.BlockWrites()
 	var unblockOnce sync.Once
 	unblock := func() { unblockOnce.Do(rawUnblock) }
 	defer unblock()
-	require.NoError(t, c.Send(wspulse.Frame{Event: "trigger"}))
+	require.NoError(t, c.Send(wspulse.Message{Event: "trigger"}))
 	<-mt.writeEntered // writePump is now blocked mid-Write
 
 	closeStarted := make(chan struct{})
@@ -337,7 +337,7 @@ func TestOnTransportDrop_WriteError_Reconnect_CleanCycle(t *testing.T) {
 
 	// First cycle: trigger write error on mt1.
 	mt1.SetWriteError(writeErr)
-	_ = c.Send(wspulse.Frame{Event: "trigger"})
+	_ = c.Send(wspulse.Message{Event: "trigger"})
 
 	got1 := requireReceive(t, transportDropErrs)
 	assert.ErrorIs(t, got1, writeErr, "first drop should report write error")
@@ -400,7 +400,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 
 	transportDropped := make(chan struct{}, 5)
 	transportRestored := make(chan struct{}, 5)
-	received := make(chan wspulse.Frame, 5)
+	received := make(chan wspulse.Message, 5)
 	c, err := client.Dial("ws://mock",
 		client.WithDialer(md),
 		client.WithClock(fc),
@@ -417,7 +417,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 			default:
 			}
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- f:
 			default:
@@ -453,7 +453,7 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 	go echoLoop(mt2, echoDone)
 
 	// Verify message delivery works after restore.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "post-restore", Payload: []byte(`"ok"`)}), "Send after restore")
+	require.NoError(t, c.Send(wspulse.Message{Event: "post-restore", Payload: []byte(`"ok"`)}), "Send after restore")
 	select {
 	case f := <-received:
 		assert.Equal(t, "post-restore", f.Event)
@@ -465,13 +465,13 @@ func TestOnTransportRestore_FiresAfterReconnect(t *testing.T) {
 func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	t.Parallel()
 	var restoreCount atomic.Int32
-	received := make(chan wspulse.Frame, 1)
+	received := make(chan wspulse.Message, 1)
 
 	c, mt, _ := dialWithMock(t,
 		client.WithOnTransportRestore(func() {
 			restoreCount.Add(1)
 		}),
-		client.WithOnMessage(func(f wspulse.Frame) {
+		client.WithOnMessage(func(f wspulse.Message) {
 			select {
 			case received <- f:
 			default:
@@ -485,8 +485,8 @@ func TestOnTransportRestore_DoesNotFireOnInitialConnect(t *testing.T) {
 	defer close(echoDone)
 	go echoLoop(mt, echoDone)
 
-	// Round-trip a frame to prove all pumps are fully operational.
-	require.NoError(t, c.Send(wspulse.Frame{Event: "probe"}), "Send failed")
+	// Round-trip a message to prove all pumps are fully operational.
+	require.NoError(t, c.Send(wspulse.Message{Event: "probe"}), "Send failed")
 	requireReceive(t, received)
 
 	assert.Equal(t, int32(0), restoreCount.Load(), "onTransportRestore should not fire on initial connect")

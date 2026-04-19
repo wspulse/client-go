@@ -14,7 +14,7 @@ A Go WebSocket client with optional automatic reconnection, designed for use wit
 ## Design Goals
 
 - Thin client: connect, send, receive, auto-reconnect
-- Matches server-side `Frame` and `Codec` types via [wspulse/core](https://github.com/wspulse/core)
+- Matches server-side `Message` and `Codec` types via [wspulse/core](https://github.com/wspulse/core)
 - Exponential backoff with configurable retries
 - Transport drop vs. permanent disconnect callbacks
 
@@ -37,7 +37,7 @@ import (
 )
 
 c, err := client.Dial("ws://localhost:8080/ws?room=r1&token=xyz",
-    client.WithOnMessage(func(f wspulse.Frame) {
+    client.WithOnMessage(func(f wspulse.Message) {
         fmt.Printf("[%s] %s\n", f.Event, f.Payload)
     }),
     client.WithAutoReconnect(5, time.Second, 30*time.Second),
@@ -47,15 +47,15 @@ if err != nil {
 }
 defer c.Close()
 
-c.Send(wspulse.Frame{Event: "msg", Payload: []byte(`{"text":"hello"}`)})
+c.Send(wspulse.Message{Event: "msg", Payload: []byte(`{"text":"hello"}`)})
 <-c.Done()
 ```
 
 ---
 
-## Frame Types and Server-Side Routing
+## Message Types and Server-Side Routing
 
-Every frame sent or received is a JSON object on the wire:
+Every message sent or received is a JSON object on the wire:
 
 ```json
 {
@@ -64,17 +64,17 @@ Every frame sent or received is a JSON object on the wire:
 }
 ```
 
-The `"event"` field is the routing key on the server. Set `frame.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
+The `"event"` field is the routing key on the server. Set `msg.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
 
 ```go
-// Send a typed frame — server routes by "event"
-c.Send(wspulse.Frame{
+// Send a typed message — server routes by "event"
+c.Send(wspulse.Message{
     Event:   "chat.message",
     Payload: []byte(`{"text":"hello world"}`),
 })
 
-// Receive typed frames
-client.WithOnMessage(func(f wspulse.Frame) {
+// Receive typed messages
+client.WithOnMessage(func(f wspulse.Message) {
     switch f.Event {
     case "chat.message":
         // handle message
@@ -99,14 +99,14 @@ rtr := router.New()
 rtr.Use(router.Recovery())
 
 rtr.On("chat.message", func(c *router.Context) {
-    fmt.Printf("[msg] %s\n", c.Frame.Payload)
+    fmt.Printf("[msg] %s\n", c.Message.Payload)
 })
 rtr.On("chat.welcome", func(c *router.Context) {
     fmt.Println("joined!")
 })
 
 c, _ := client.Dial("ws://localhost:8080/ws?room=r1&token=xyz",
-    client.WithOnMessage(func(f wspulse.Frame) {
+    client.WithOnMessage(func(f wspulse.Message) {
         rtr.Dispatch(nil, f) // no router.Connection on the client side
     }),
     client.WithAutoReconnect(5, time.Second, 30*time.Second),
