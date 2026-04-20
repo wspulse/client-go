@@ -55,7 +55,7 @@ c.Send(wspulse.Message{Event: "msg", Payload: []byte(`{"text":"hello"}`)})
 
 ## Message Types and Server-Side Routing
 
-Every message sent or received is a JSON object on the wire:
+By default, every message sent or received is a JSON object on the wire (using `JSONCodec`; override with `WithCodec`):
 
 ```json
 {
