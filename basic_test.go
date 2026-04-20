@@ -75,7 +75,7 @@ func TestSend_WritesCorrectData(t *testing.T) {
 
 func TestClose_DiscardsBufferedMessages(t *testing.T) {
 	t.Parallel()
-	// Contract: close() discards unsent buffered messages. After Close(),
+	// Contract: Close() discards unsent buffered messages. After Close(),
 	// writePump must write at most 1 data message (the one in-flight when
 	// c.done fires) before stopping.
 	const bufSize = 8

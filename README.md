@@ -64,7 +64,7 @@ Every message sent or received is a JSON object on the wire:
 }
 ```
 
-The `"event"` field is the routing key on the server. Set `msg.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
+The `"event"` field is the routing key on the server. Set `Message.Event` to match the handler registered with `r.On("chat.message", ...)` on the server side. The `"payload"` field carries arbitrary JSON — the library does not inspect it.
 
 ```go
 // Send a typed message — server routes by "event"
