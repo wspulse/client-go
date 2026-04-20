@@ -29,8 +29,8 @@ var ErrServerClosed = errors.New("wspulse: server closed connection")
 
 // Client is the public interface for the WebSocket client.
 type Client interface {
-	// Send enqueues f for delivery to the server.
-	Send(f wspulse.Frame) error
+	// Send enqueues m for delivery to the server.
+	Send(m wspulse.Message) error
 
 	// Close terminates the connection and stops any reconnect loop.
 	Close() error
@@ -149,15 +149,15 @@ func Dial(urlStr string, opts ...ClientOption) (Client, error) {
 
 var _ Client = (*internalClient)(nil)
 
-// Send enqueues f for delivery to the server.
-func (c *internalClient) Send(f wspulse.Frame) error {
+// Send enqueues m for delivery to the server.
+func (c *internalClient) Send(m wspulse.Message) error {
 	select {
 	case <-c.done:
 		return wspulse.ErrConnectionClosed
 	default:
 	}
 
-	data, err := c.config.codec.Encode(f)
+	data, err := c.config.codec.Encode(m)
 	if err != nil {
 		return err
 	}
@@ -281,11 +281,11 @@ func (c *internalClient) readPump(ctx context.Context, trans transport, dropped 
 			return
 		}
 		if fn := c.config.onMessage; fn != nil {
-			frame, decodeErr := c.config.codec.Decode(data)
+			msg, decodeErr := c.config.codec.Decode(data)
 			if decodeErr == nil {
-				fn(frame)
+				fn(msg)
 			} else {
-				c.logger.Warn("wspulse: decode failed, frame dropped",
+				c.logger.Warn("wspulse: decode failed, message dropped",
 					zap.Error(decodeErr),
 				)
 			}
@@ -310,7 +310,7 @@ func (c *internalClient) writePump(ctx context.Context, trans transport, pumpDon
 		default:
 		}
 
-		// Close priority check — discard buffered frames on shutdown.
+		// Close priority check — discard buffered messages on shutdown.
 		select {
 		case <-c.done:
 			c.logger.Debug("wspulse: writePump stopping (client closed)")
@@ -322,7 +322,7 @@ func (c *internalClient) writePump(ctx context.Context, trans transport, pumpDon
 		select {
 		case data := <-c.send:
 			writeCtx, cancel := context.WithTimeout(ctx, c.config.writeTimeout)
-			err := trans.Write(writeCtx, c.config.codec.FrameType(), data)
+			err := trans.Write(writeCtx, c.config.codec.WireType(), data)
 			cancel()
 			if err != nil {
 				c.logger.Warn("wspulse: write failed",

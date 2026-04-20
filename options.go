@@ -12,19 +12,19 @@ import (
 
 // Configuration upper bounds — option functions panic if these ceilings are exceeded.
 const (
-	maxWriteTimeout  = 30 * time.Second // WithWriteTimeout upper bound
-	maxMsgSizeBytes  = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
-	maxBaseDelay     = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
-	maxDelayLimit    = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
-	maxRetriesLimit  = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
-	maxSendBufFrames = 4096             // WithSendBufferSize upper bound
+	maxWriteTimeout    = 30 * time.Second // WithWriteTimeout upper bound
+	maxMsgSizeBytes    = 64 << 20         // WithMaxMessageSize upper bound — 64 MiB
+	maxBaseDelay       = 1 * time.Minute  // WithAutoReconnect: baseDelay upper bound
+	maxDelayLimit      = 5 * time.Minute  // WithAutoReconnect: maxDelay upper bound
+	maxRetriesLimit    = 32               // WithAutoReconnect: maxRetries upper bound (0 = unlimited)
+	maxSendBufMessages = 4096             // WithSendBufferSize upper bound
 )
 
 // ClientOption configures a Client.
 type ClientOption func(*clientConfig) //nolint:revive
 
 type clientConfig struct {
-	onMessage          func(wspulse.Frame)
+	onMessage          func(wspulse.Message)
 	onDisconnect       func(err error)
 	onTransportDrop    func(err error)
 	onTransportRestore func()
@@ -37,7 +37,7 @@ type clientConfig struct {
 	maxDelay           time.Duration
 	writeTimeout       time.Duration
 	maxMessageSize     int64 // max inbound message size in bytes; 0 = no size enforcement
-	sendBufferSize     int   // outbound channel capacity (number of frames)
+	sendBufferSize     int   // outbound channel capacity (number of messages)
 	clock              clock
 	dialer             dialer
 }
@@ -58,8 +58,8 @@ func defaultClientConfig() *clientConfig {
 	}
 }
 
-// WithOnMessage registers a callback invoked for every inbound Frame.
-func WithOnMessage(fn func(wspulse.Frame)) ClientOption {
+// WithOnMessage registers a callback invoked for every inbound Message.
+func WithOnMessage(fn func(wspulse.Message)) ClientOption {
 	return func(c *clientConfig) { c.onMessage = fn }
 }
 
@@ -139,7 +139,7 @@ func WithLogger(logger *zap.Logger) ClientOption {
 	return func(c *clientConfig) { c.logger = logger }
 }
 
-// WithWriteTimeout sets the timeout for write operations: data frames and the
+// WithWriteTimeout sets the timeout for write operations: data messages and the
 // close handshake. d must be in (0, 30s]. Default is 10s.
 func WithWriteTimeout(d time.Duration) ClientOption {
 	if d <= 0 {
@@ -151,14 +151,14 @@ func WithWriteTimeout(d time.Duration) ClientOption {
 	return func(c *clientConfig) { c.writeTimeout = d }
 }
 
-// WithSendBufferSize sets the outbound channel capacity (number of frames).
+// WithSendBufferSize sets the outbound channel capacity (number of messages).
 // n must be in [1, 4096]. Default is 256.
 func WithSendBufferSize(n int) ClientOption {
 	if n < 1 {
 		panic("wspulse: sendBufferSize must be at least 1")
 	}
-	if n > maxSendBufFrames {
-		panic(fmt.Sprintf("wspulse: sendBufferSize exceeds maximum (%d)", maxSendBufFrames))
+	if n > maxSendBufMessages {
+		panic(fmt.Sprintf("wspulse: sendBufferSize exceeds maximum (%d)", maxSendBufMessages))
 	}
 	return func(c *clientConfig) { c.sendBufferSize = n }
 }
