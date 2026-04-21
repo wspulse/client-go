@@ -22,10 +22,40 @@ var ErrRetriesExhausted = errors.New("wspulse: max reconnect retries exhausted")
 // connection and auto-reconnect is disabled.
 var ErrConnectionLost = errors.New("wspulse: connection lost")
 
-// ErrServerClosed is returned to OnTransportDrop when the server initiated a
-// WebSocket close handshake by sending a close frame. This is a protocol-level
+// ServerClosedError is returned to OnTransportDrop when the server initiated
+// a WebSocket close handshake by sending a close frame. It carries the close
+// status code and reason string sent by the server. This is a protocol-level
 // intentional close, distinct from an abrupt network drop.
-var ErrServerClosed = errors.New("wspulse: server closed connection")
+//
+// Callers extract the code and reason via errors.As:
+//
+//	var sce *client.ServerClosedError
+//	if errors.As(err, &sce) {
+//	    log.Printf("server closed: code=%d reason=%q", sce.Code, sce.Reason)
+//	}
+//
+// errors.Is(err, &client.ServerClosedError{}) matches any *ServerClosedError
+// regardless of code or reason, providing a type-check shortcut similar to
+// a sentinel error.
+type ServerClosedError struct {
+	Code   wspulse.StatusCode
+	Reason string
+}
+
+// Error implements the error interface.
+func (e *ServerClosedError) Error() string {
+	if e.Reason == "" {
+		return fmt.Sprintf("wspulse: server closed connection: code=%d", e.Code)
+	}
+	return fmt.Sprintf("wspulse: server closed connection: code=%d, reason=%q", e.Code, e.Reason)
+}
+
+// Is reports whether target is any *ServerClosedError, enabling
+// errors.Is(err, &ServerClosedError{}) as a type-check shortcut.
+func (e *ServerClosedError) Is(target error) bool {
+	_, ok := target.(*ServerClosedError)
+	return ok
+}
 
 // Client is the public interface for the WebSocket client.
 type Client interface {
@@ -248,7 +278,7 @@ func (c *internalClient) readPump(ctx context.Context, trans transport, dropped 
 		// Determine the root-cause error for onTransportDrop:
 		//   1. User-initiated close → nil (behaviour contract).
 		//   2. writePump reported an error → use it (root cause).
-		//   3. Otherwise → readPump's own readErr (may be ErrServerClosed from adapter).
+		//   3. Otherwise → readPump's own readErr (may be *ServerClosedError from adapter).
 		select {
 		case <-c.done:
 			readErr = nil
