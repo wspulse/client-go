@@ -37,9 +37,11 @@ var _ transport = (*coderTransport)(nil)
 func (t *coderTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	typ, data, err := t.conn.Read(ctx)
 	if err != nil {
-		// Server sent a WebSocket close frame. Extract the exact code and
-		// reason into *ServerClosedError so callers can inspect them via
-		// errors.As without importing coder/websocket.
+		// If the read failed due to a server WebSocket close frame, extract
+		// the exact code and reason into *ServerClosedError so callers can
+		// inspect them via errors.As without importing coder/websocket.
+		// Non-close errors (timeouts, context cancellation, I/O) pass through
+		// unchanged.
 		var ce websocket.CloseError
 		if errors.As(err, &ce) {
 			err = &ServerClosedError{
