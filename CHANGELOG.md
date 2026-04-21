@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `ErrServerClosed` sentinel replaced by `ServerClosedError` struct carrying `Code wspulse.StatusCode` and `Reason string`. `coderTransport.Read` now extracts the exact close code and reason from the server's close frame. Use `errors.As(err, &sce)` to inspect the values; `errors.Is(err, &ServerClosedError{})` works as a type-check shortcut. See [wspulse/.github#37](https://github.com/wspulse/.github/issues/37).
+
 ## [0.9.0] - 2026-04-20
 
 ### Changed
