@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 
 	"github.com/coder/websocket"
 
@@ -35,10 +36,19 @@ var _ transport = (*coderTransport)(nil)
 
 func (t *coderTransport) Read(ctx context.Context) (wspulse.MessageType, []byte, error) {
 	typ, data, err := t.conn.Read(ctx)
-	if err != nil && websocket.CloseStatus(err) != -1 {
-		// Server sent a WebSocket close frame. Return ErrServerClosed directly
-		// so callers can use errors.Is without importing coder/websocket.
-		err = ErrServerClosed
+	if err != nil {
+		// If the read failed due to a server WebSocket close frame, extract
+		// the exact code and reason into *ServerClosedError so callers can
+		// inspect them via errors.As without importing coder/websocket.
+		// Non-close errors (timeouts, context cancellation, I/O) pass through
+		// unchanged.
+		var ce websocket.CloseError
+		if errors.As(err, &ce) {
+			err = &ServerClosedError{
+				Code:   wspulse.StatusCode(ce.Code),
+				Reason: ce.Reason,
+			}
+		}
 	}
 	return wspulse.MessageType(typ), data, err
 }

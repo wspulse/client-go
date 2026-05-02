@@ -11,20 +11,24 @@ import (
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	wspulse "github.com/wspulse/core"
 )
 
-// TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed verifies that
-// coderTransport.Read wraps any WebSocket close frame into ErrServerClosed.
-// This ensures callers do not need to import coder/websocket to classify the
-// error — errors.Is(err, ErrServerClosed) is sufficient.
-func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
+// TestCoderTransport_Read_WrapsCloseFrameAsServerClosedError verifies that
+// coderTransport.Read wraps any WebSocket close frame into *ServerClosedError
+// carrying the exact code and reason sent by the server. Callers extract
+// them via errors.As without importing coder/websocket.
+func TestCoderTransport_Read_WrapsCloseFrameAsServerClosedError(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		code websocket.StatusCode
+		name       string
+		code       websocket.StatusCode
+		reason     string
+		wantStatus wspulse.StatusCode
 	}{
-		{"normal closure (1000)", websocket.StatusNormalClosure},
-		{"policy violation (1008)", websocket.StatusPolicyViolation},
-		{"going away (1001)", websocket.StatusGoingAway},
+		{"normal closure (1000)", websocket.StatusNormalClosure, "bye", wspulse.StatusNormalClosure},
+		{"policy violation (1008)", websocket.StatusPolicyViolation, "nope", wspulse.StatusPolicyViolation},
+		{"going away (1001)", websocket.StatusGoingAway, "server shutting down", wspulse.StatusGoingAway},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -35,7 +39,7 @@ func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
 					t.Errorf("websocket.Accept: %v", err)
 					return
 				}
-				_ = conn.Close(tc.code, "test close")
+				_ = conn.Close(tc.code, tc.reason)
 			}))
 			t.Cleanup(srv.Close)
 
@@ -51,8 +55,11 @@ func TestCoderTransport_Read_WrapsCloseFrameAsErrServerClosed(t *testing.T) {
 			_, _, readErr := transport.Read(ctx)
 
 			require.Error(t, readErr)
-			assert.ErrorIs(t, readErr, ErrServerClosed,
-				"want ErrServerClosed for close code %d, got: %v", tc.code, readErr)
+			var sce *ServerClosedError
+			require.ErrorAs(t, readErr, &sce,
+				"want *ServerClosedError for close code %d, got: %v", tc.code, readErr)
+			assert.Equal(t, tc.wantStatus, sce.Code, "close code mismatch")
+			assert.Equal(t, tc.reason, sce.Reason, "close reason mismatch")
 		})
 	}
 }
