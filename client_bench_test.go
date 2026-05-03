@@ -109,8 +109,8 @@ func BenchmarkSend(b *testing.B) {
 	}
 }
 
-// benchSend measures b.N batches of `loop` Send calls each. Reported ns/op is
-// per-batch cost; divide by `loop` to get per-message cost.
+// benchSend measures `loop` Send calls per timed iteration. Reported ns/op
+// is per-batch cost; divide by `loop` to get per-message cost.
 func benchSend(b *testing.B, loop, payloadSize int) {
 	ts := startWSSink(b)
 
@@ -129,8 +129,7 @@ func benchSend(b *testing.B, loop, payloadSize int) {
 	// Direct sentinel comparison (not errors.Is) keeps the hot path cheap.
 	var unexpectedErrs int
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for j := 0; j < loop; j++ {
 			// ErrSendBufferFull is expected at benchmark speed when writePump
 			// cannot keep up with enqueue rate. The bench measures Send call
@@ -140,7 +139,8 @@ func benchSend(b *testing.B, loop, payloadSize int) {
 			}
 		}
 	}
-	b.StopTimer()
+	// The check runs outside the timed region — b.Loop has already returned
+	// false and the timer is stopped before we read unexpectedErrs.
 	if unexpectedErrs > 0 {
 		b.Fatalf("got %d unexpected Send errors during bench", unexpectedErrs)
 	}
@@ -158,8 +158,9 @@ func BenchmarkReconnectBackoff(b *testing.B) {
 		max  = 30 * time.Second
 	)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	i := 0
+	for b.Loop() {
 		_ = backoff(i%30, base, max)
+		i++
 	}
 }
