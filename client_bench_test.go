@@ -46,13 +46,24 @@ var messageSizes = []struct {
 // does not reliably cancel reads on hijacked WebSocket connections, so we
 // drive cancellation via an explicit context and wait for the handler with
 // a WaitGroup.
+//
+// The `started` channel guarantees that `wg.Add(1)` runs before any
+// `wg.Wait()` — without it, a Wait that observed counter==0 before the
+// first Add could panic with "sync: WaitGroup misuse". Wait blocks on
+// `started` first; cleanup with no handler ever invoked (e.g. Dial
+// failed) skips Wait entirely.
 func startWSSink(b *testing.B) *httptest.Server {
 	b.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
+	started := make(chan struct{}, 1)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		defer wg.Done()
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -68,7 +79,14 @@ func startWSSink(b *testing.B) *httptest.Server {
 	b.Cleanup(func() {
 		cancel()   // unblock c.Read inside the handler
 		ts.Close() // close listener and accepted conns
-		wg.Wait()  // ensure the handler goroutine has exited
+		select {
+		case <-started:
+			// Handler started at least once → wg.Add has fired, safe to Wait.
+			wg.Wait()
+		default:
+			// No handler ever ran (e.g. Dial failed before connect); skip
+			// Wait to avoid blocking on a counter that never moved.
+		}
 	})
 	return ts
 }
