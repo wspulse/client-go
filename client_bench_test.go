@@ -1,10 +1,12 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,22 +40,37 @@ var messageSizes = []struct {
 // incoming messages with no application-level processing. Used as the bench
 // counterpart so the client-side Send path is the only thing measured (apart
 // from network/transport overhead inherent to a real WebSocket loopback).
+//
+// Cleanup is registered via b.Cleanup so the handler goroutine is guaranteed
+// to have exited before goleak.VerifyTestMain runs. Using r.Context() alone
+// does not reliably cancel reads on hijacked WebSocket connections, so we
+// drive cancellation via an explicit context and wait for the handler with
+// a WaitGroup.
 func startWSSink(b *testing.B) *httptest.Server {
 	b.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wg.Add(1)
+		defer wg.Done()
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer func() { _ = c.CloseNow() }()
-		// Drain reads until the client disconnects.
 		for {
-			if _, _, err := c.Read(r.Context()); err != nil {
+			if _, _, err := c.Read(ctx); err != nil {
 				return
 			}
 		}
 	})
-	return httptest.NewServer(handler)
+	ts := httptest.NewServer(handler)
+	b.Cleanup(func() {
+		cancel()   // unblock c.Read inside the handler
+		ts.Close() // close listener and accepted conns
+		wg.Wait()  // ensure the handler goroutine has exited
+	})
+	return ts
 }
 
 func BenchmarkSend(b *testing.B) {
@@ -78,7 +95,6 @@ func BenchmarkSend(b *testing.B) {
 // per-batch cost; divide by `loop` to get per-message cost.
 func benchSend(b *testing.B, loop, payloadSize int) {
 	ts := startWSSink(b)
-	b.Cleanup(ts.Close)
 
 	url := "ws" + strings.TrimPrefix(ts.URL, "http")
 
