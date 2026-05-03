@@ -89,6 +89,11 @@ func benchSend(b *testing.B, loop, payloadSize int) {
 	b.Cleanup(func() { _ = c.Close() })
 
 	msg := wspulse.Message{Event: "bench", Payload: jsonPayload(payloadSize)}
+	// unexpectedErrs counts any Send errors that aren't the expected
+	// ErrSendBufferFull. A non-zero count means the connection dropped or
+	// the codec failed mid-bench, in which case the timing data is junk.
+	// Direct sentinel comparison (not errors.Is) keeps the hot path cheap.
+	var unexpectedErrs int
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -96,8 +101,14 @@ func benchSend(b *testing.B, loop, payloadSize int) {
 			// ErrSendBufferFull is expected at benchmark speed when writePump
 			// cannot keep up with enqueue rate. The bench measures Send call
 			// cost (encode + enqueue) including the buffer-full path.
-			_ = c.Send(msg)
+			if err := c.Send(msg); err != nil && err != wspulse.ErrSendBufferFull {
+				unexpectedErrs++
+			}
 		}
+	}
+	b.StopTimer()
+	if unexpectedErrs > 0 {
+		b.Fatalf("got %d unexpected Send errors during bench", unexpectedErrs)
 	}
 }
 
