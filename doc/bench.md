@@ -26,14 +26,14 @@ Measured on `darwin/arm64` (`Apple M1 Max`).
 
 | Operation | ns/op | B/op | allocs/op |
 |---|---:|---:|---:|
-| `Send (single, 64 B)` | 525.1 | 340 | 4 |
-| `Send (single, 1 KiB)` | 4,868 | 5,113 | 40 |
-| `Send (single, 16 KiB)` | 68,742 | 61,580 | 92 |
-| `Send (loop_10, 64 B)` | 5,251 | 3,480 | 48 |
-| `Send (loop_10, 1 KiB)` | 48,826 | 51,488 | 408 |
-| `Send (loop_10, 16 KiB)` | 686,637 | 615,660 | 921 |
-| `Send (loop_100, 64 B)` | 52,651 | 34,722 | 480 |
-| `Send (loop_100, 1 KiB)` | 488,082 | 513,267 | 4,068 |
-| `Send (loop_100, 16 KiB)` | 6,893,634 | 6,157,370 | 9,211 |
-| `Reconnect backoff` | 7.207 | 0 | 0 |
+| `Send (single, 64 B)` | 577.3 | 354 | 4 |
+| `Send (single, 1 KiB)` | 4,868 | 4,975 | 39 |
+| `Send (single, 16 KiB)` | 69,404 | 61,566 | 92 |
+| `Send (loop_10, 64 B)` | 5,402 | 3,300 | 45 |
+| `Send (loop_10, 1 KiB)` | 48,818 | 50,027 | 394 |
+| `Send (loop_10, 16 KiB)` | 696,082 | 615,715 | 921 |
+| `Send (loop_100, 64 B)` | 54,600 | 33,420 | 462 |
+| `Send (loop_100, 1 KiB)` | 494,087 | 507,640 | 4,013 |
+| `Send (loop_100, 16 KiB)` | 6,918,477 | 6,157,130 | 9,211 |
+| `Reconnect backoff` | 7.824 | 0 | 0 |
 <!-- benchsync:client-go:end -->
