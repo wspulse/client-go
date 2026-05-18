@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-18
+
+### Added
+
+- Benchmark harness with `make bench-ci`, `make bench-sync`, and a CI
+  workflow that uploads `bench.txt` as an artefact on every PR. See
+  `doc/bench.md` for the baseline numbers. (#60)
+
 ## [0.10.0] - 2026-05-02
 
 ### Changed
@@ -163,7 +171,8 @@
 - Orphaned callback goroutines on disconnect — all goroutines cleaned up on `Close`
 - `Close()` waits for all internal goroutines to exit before returning
 
-[Unreleased]: https://github.com/wspulse/client-go/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/wspulse/client-go/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/wspulse/client-go/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/wspulse/client-go/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/wspulse/client-go/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/wspulse/client-go/compare/v0.8.0...v0.8.1
